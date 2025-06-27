@@ -586,7 +586,7 @@ async def api_submit_application(
     API version of submit_application that returns JSON responses.
     """
     # Check rate limit
-    rate_check = rate_limiter.check_rate_limiter(email)
+    rate_check = rate_limiter.check_rate_limit(email)
     if not rate_check["allowed"]:
         return JSONResponse(
             content={"success": False, "error": rate_check["message"]},
@@ -797,7 +797,8 @@ async def start_job_discovery(request: Request):
     """Start automated job discovery"""
     try:
         form_data = await request.form()
-        interval_hours = int(form_data.get("interval_hours", 2))
+        interval_hours_raw = form_data.get("interval_hours", "2")
+        interval_hours = int(interval_hours_raw) if isinstance(interval_hours_raw, str) else 2
         
         await auto_job_discovery.start_auto_discovery(interval_hours)
         

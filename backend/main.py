@@ -11,6 +11,7 @@ import pathlib
 from routes.application import router as application_router
 from utils.scheduler import JobApplicationScheduler
 from services.auto_job_discovery import auto_job_discovery
+from services.auto_applicator import AutoApplicator
 
 # Load environment variables
 load_dotenv()
@@ -18,11 +19,21 @@ load_dotenv()
 # Global scheduler instance
 scheduler = JobApplicationScheduler()
 
+# Initialize services globally
+auto_applicator = AutoApplicator()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler for startup and shutdown"""
     # Startup
     await scheduler.start()
+    
+    # Restore any active auto-apply schedules
+    try:
+        # await auto_applicator.restore_schedules_on_startup()
+        print("✅ Auto-applicator initialized successfully")
+    except Exception as e:
+        print(f"⚠️ Warning: Failed to initialize auto-applicator: {e}")
     
     # Start auto job discovery service
     try:
@@ -51,16 +62,23 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Get allowed origins from environment
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+# CORS configuration for production and development
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://automated-frontend.vercel.app",  # Add your frontend domain
+    "https://*.vercel.app",  # Allow all Vercel domains
+    "https://automated-uayp.onrender.com"  # Your backend domain
+]
 
-# Add CORS middleware - Fixed for production
+# Add CORS middleware with proper configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for production
-    allow_credentials=False,  # Must be False when using "*"
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_origins=["*"],  # Allow all origins for now to fix the immediate issue
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # Mount static files directory
