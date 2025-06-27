@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Automated Job Application System - Auto Apply</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"],
+        input[type="email"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4285F4;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #3367D6;
+        }
+        .error {
+            color: red;
+            font-size: 14px;
+        }
+        .success {
+            color: green;
+            font-size: 14px;
+        }
+        .ai-badge {
+            display: inline-block;
+            background-color: #4285F4;
+            color: white;
+            font-size: 12px;
+            padding: 3px 8px;
+            border-radius: 10px;
+            margin-left: 10px;
+        }
+        .job-list {
+            margin-top: 20px;
+        }
+        .job-card {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 10px;
+            background-color: white;
+        }
+        .job-title {
+            font-weight: bold;
+            font-size: 18px;
+            color: #4285F4;
+        }
+        .job-company {
+            font-weight: bold;
+        }
+        .job-description {
+            margin-top: 10px;
+            color: #555;
+        }
+        .job-source {
+            background-color: #eee;
+            font-size: 12px;
+            padding: 2px 5px;
+            border-radius: 3px;
+            margin-right: 5px;
+        }
+        .job-link {
+            margin-top: 10px;
+        }
+        .job-link a {
+            color: #4285F4;
+            text-decoration: none;
+        }
+        .job-link a:hover {
+            text-decoration: underline;
+        }
+        .schedule-info {
+            background-color: #f0f8ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        .tab-container {
+            margin-top: 20px;
+        }
+        .tab-buttons {
+            display: flex;
+            border-bottom: 1px solid #ddd;
+        }
+        .tab-button {
+            padding: 10px 20px;
+            background-color: #f1f1f1;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 2px;
+        }
+        .tab-button.active {
+            background-color: #4285F4;
+            color: white;
+        }
+        .tab-content {
+            display: none;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-top: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+    <script>
+        function showTab(tabName) {
+            // Hide all tabs
+            var tabs = document.getElementsByClassName('tab-content');
+            for (var i = 0; i < tabs.length; i++) {
+                tabs[i].classList.remove('active');
+            }
+            
+            // Deactivate all buttons
+            var buttons = document.getElementsByClassName('tab-button');
+            for (var i = 0; i < buttons.length; i++) {
+                buttons[i].classList.remove('active');
+            }
+            
+            // Show the selected tab
+            document.getElementById(tabName).classList.add('active');
+            document.getElementById(tabName + '-btn').classList.add('active');
+        }
+        
+        function showScheduleOptions() {
+            var scheduleType = document.getElementById('schedule_type').value;
+            var recurringOptions = document.getElementById('recurring-options');
+            
+            if (scheduleType === 'recurring') {
+                recurringOptions.style.display = 'block';
+            } else {
+                recurringOptions.style.display = 'none';
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>Automated Job Application System <span class="ai-badge">Powered by Gemini</span></h1>
+        
+        <div class="tab-container">
+            <div class="tab-buttons">
+                <button id="search-tab-btn" class="tab-button" onclick="showTab('search-tab')">Search Jobs</button>
+                <button id="auto-apply-tab-btn" class="tab-button active" onclick="showTab('auto-apply-tab')">Auto Apply</button>
+                <button id="status-tab-btn" class="tab-button" onclick="showTab('status-tab')">Application Status</button>
+            </div>
+            
+            {% if message %}
+            <div class="{% if error %}error{% else %}success{% endif %}">
+                {{ message }}
+            </div>
+            {% endif %}
+            
+            <div id="search-tab" class="tab-content">
+                <h2>Search Jobs</h2>
+                <p>Search for jobs based on job title and location.</p>
+                
+                <form action="/search-jobs" method="post">
+                    <div class="form-group">
+                        <label for="job_title">Job Title:</label>
+                        <input type="text" id="job_title" name="job_title" required {% if job_title %}value="{{ job_title }}"{% endif %}>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="location">Location:</label>
+                        <input type="text" id="location" name="location" value="{% if location %}{{ location }}{% else %}remote{% endif %}">
+                    </div>
+                    
+                    <button type="submit">Search Jobs</button>
+                </form>
+                
+                {% if jobs %}
+                <div class="job-list">
+                    <h3>Job Search Results</h3>
+                    {% for job in jobs %}
+                    <div class="job-card">
+                        <div class="job-title">{{ job.title }}</div>
+                        <div class="job-company">{{ job.company }}</div>
+                        <span class="job-source">{{ job.source }}</span>
+                        <div class="job-description">
+                            {% if job.description %}
+                                {{ job.description }}
+                            {% endif %}
+                        </div>
+                        {% if job.url %}
+                        <div class="job-link">
+                            <a href="{{ job.url }}" target="_blank">View Job Details</a>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            
+            <div id="auto-apply-tab" class="tab-content active">
+                <h2>Auto Apply</h2>
+                <p>Set up automatic job applications based on your criteria.</p>
+                
+                <form action="/auto-apply" method="post" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="full_name">Full Name:</label>
+                        <input type="text" id="full_name" name="full_name" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="email">Email Address:</label>
+                        <input type="email" id="email" name="email" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="job_title_auto">Job Title to Search For:</label>
+                        <input type="text" id="job_title_auto" name="job_title" required {% if job_title %}value="{{ job_title }}"{% endif %}>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="location_auto">Location:</label>
+                        <input type="text" id="location_auto" name="location" value="{% if location %}{{ location }}{% else %}remote{% endif %}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="cv">CV (PDF only):</label>
+                        <input type="file" id="cv" name="cv" accept=".pdf" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="max_applications">Maximum Applications:</label>
+                        <input type="number" id="max_applications" name="max_applications" min="1" max="20" value="5">
+                        <small>Maximum number of jobs to apply to in each run</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="schedule_type">Schedule Type:</label>
+                        <select id="schedule_type" name="schedule_type" onchange="showScheduleOptions()">
+                            <option value="once">One-time (now)</option>
+                            <option value="recurring">Recurring</option>
+                        </select>
+                    </div>
+                    
+                    <div id="recurring-options" style="display: none;">
+                        <div class="form-group">
+                            <label for="frequency_days">Run Every (days):</label>
+                            <input type="number" id="frequency_days" name="frequency_days" min="1" max="30" value="7">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="total_runs">Total Runs:</label>
+                            <input type="number" id="total_runs" name="total_runs" min="1" max="10" value="4">
+                            <small>Leave empty for unlimited runs</small>
+                        </div>
+                    </div>
+                    
+                    <button type="submit">Schedule Auto Apply</button>
+                </form>
+                
+                {% if job_id and schedule_info %}
+                <div class="schedule-info">
+                    <h3>Scheduled Job</h3>
+                    <p><strong>Job ID:</strong> {{ job_id }}</p>
+                    <p><strong>Job Title:</strong> {{ schedule_info.job_title }}</p>
+                    <p><strong>Schedule Type:</strong> {{ schedule_info.schedule_type }}</p>
+                    <p><strong>Status:</strong> {{ schedule_info.status }}</p>
+                    <p><strong>Next Run:</strong> {{ schedule_info.next_run }}</p>
+                    <p><strong>View status:</strong> <a href="/scheduled-jobs/{{ schedule_info.user_id }}">View all jobs</a></p>
+                </div>
+                {% endif %}
+            </div>
+            
+            <div id="status-tab" class="tab-content">
+                <h2>Check Application Status</h2>
+                <p>Check the status of your automated job applications.</p>
+                
+                <form action="/application-status" method="get">
+                    <div class="form-group">
+                        <label for="user_email">Email Address:</label>
+                        <input type="email" id="user_email" name="user_email" required>
+                    </div>
+                    
+                    <button type="submit">Check Status</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

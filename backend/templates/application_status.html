@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Automated Job Application System - Application Status</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        .status-card {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        .summary-stats {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .stat-box {
+            background-color: #f0f8ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 4px;
+            padding: 10px 15px;
+            flex: 1;
+            min-width: 120px;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4285F4;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #555;
+        }
+        .application-list {
+            margin-top: 20px;
+        }
+        .application-item {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 10px;
+            background-color: white;
+        }
+        .application-title {
+            font-weight: bold;
+            font-size: 18px;
+            color: #4285F4;
+        }
+        .application-company {
+            font-weight: bold;
+        }
+        .application-date {
+            color: #777;
+            font-size: 14px;
+        }
+        .application-status {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-applied {
+            background-color: #e7f4ff;
+            color: #0066cc;
+        }
+        .status-interviewing {
+            background-color: #fff4e5;
+            color: #ff9900;
+        }
+        .status-rejected {
+            background-color: #ffe5e5;
+            color: #cc0000;
+        }
+        .status-accepted {
+            background-color: #e5ffe5;
+            color: #008800;
+        }
+        .chart-container {
+            margin-top: 30px;
+        }
+        .source-list {
+            list-style: none;
+            padding: 0;
+        }
+        .source-list li {
+            margin-bottom: 5px;
+            padding: 5px;
+            background-color: #f5f5f5;
+            border-radius: 3px;
+        }
+        .source-count {
+            float: right;
+            font-weight: bold;
+            color: #4285F4;
+        }
+        .back-link {
+            margin-top: 20px;
+            display: inline-block;
+        }
+        .application-meta {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .application-links {
+            margin-top: 10px;
+        }
+        .application-links a {
+            color: #4285F4;
+            text-decoration: none;
+            margin-right: 15px;
+        }
+        .application-links a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Application Status Dashboard</h1>
+        
+        <div class="status-card">
+            <h2>Summary for {{ user_email }}</h2>
+            <p>Last updated: {{ summary.last_updated }}</p>
+            
+            <div class="summary-stats">
+                <div class="stat-box">
+                    <div class="stat-number">{{ summary.total_applications }}</div>
+                    <div class="stat-label">Total Applications</div>
+                </div>
+                
+                {% for status, count in summary.status_counts.items() %}
+                <div class="stat-box">
+                    <div class="stat-number">{{ count }}</div>
+                    <div class="stat-label">{{ status|title }}</div>
+                </div>
+                {% endfor %}
+            </div>
+            
+            <div class="chart-container">
+                <h3>Applications by Source</h3>
+                <ul class="source-list">
+                    {% for source, count in summary.source_counts.items() %}
+                    <li>
+                        {{ source }}
+                        <span class="source-count">{{ count }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        
+        <div class="application-list">
+            <h2>Recent Applications</h2>
+            
+            {% if summary.recent_applications %}
+                {% for app in summary.recent_applications %}
+                <div class="application-item">
+                    <div class="application-meta">
+                        <span class="application-date">{{ app.applied_at }}</span>
+                        <span class="application-status status-{{ app.status }}">{{ app.status|title }}</span>
+                    </div>
+                    <div class="application-title">{{ app.title }}</div>
+                    <div class="application-company">{{ app.company }}</div>
+                    <div>Source: {{ app.source }}</div>
+                    
+                    <div class="application-links">
+                        {% if app.url %}
+                        <a href="{{ app.url }}" target="_blank">Job Posting</a>
+                        {% endif %}
+                        
+                        {% if app.cover_letter_path %}
+                        <a href="/download/{{ app.cover_letter_path.split('/')[-1] }}">View Cover Letter</a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p>No applications found.</p>
+            {% endif %}
+        </div>
+        
+        <a href="/auto-apply" class="back-link">← Back to Auto-Apply Dashboard</a>
+    </div>
+</body>
+</html>

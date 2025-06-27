@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+job_scraping.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads and temporary files
+static/uploads/*
+!static/uploads/.gitkeep
+static/application_history/*
+!static/application_history/.gitkeep
+static/scheduler/*
+!static/scheduler/.gitkeep
+
+# Firebase credentials (always ignore)
+firebase-service-account.json
+*service-account*.json
+
+# Build artifacts
+build/
+dist/

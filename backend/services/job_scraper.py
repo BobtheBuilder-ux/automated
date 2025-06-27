@@ -1,0 +1,891 @@
+import requests
+from bs4 import BeautifulSoup
+import time
+import random
+import logging
+from typing import List, Dict, Optional
+from datetime import datetime, timedelta
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+import re
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    filename='job_scraping.log'
+)
+logger = logging.getLogger(__name__)
+
+class JobScraper:
+    """Service for scraping job postings from various job boards."""
+    
+    def __init__(self):
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+        }
+        
+    def _setup_selenium(self):
+        """Set up a headless Chrome browser for Selenium."""
+        options = Options()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        
+        # Set up Chrome driver
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+        return driver
+    
+    async def search_indeed(self, job_title: str, location: str = "remote") -> List[Dict]:
+        """
+        Scrape job listings from Indeed, filtering for jobs posted within 48 hours.
+        
+        Args:
+            job_title: The job title to search for
+            location: Job location, defaults to "remote"
+            
+        Returns:
+            List of recent job posting dictionaries
+        """
+        logger.info(f"Searching Indeed for recent {job_title} jobs in {location}")
+        
+        # Format job title for URL
+        formatted_job = job_title.replace(' ', '+')
+        formatted_location = location.replace(' ', '+')
+        
+        try:
+            driver = self._setup_selenium()
+            
+            # Navigate to Indeed search results with date filter for last 3 days
+            url = f"https://www.indeed.com/jobs?q={formatted_job}&l={formatted_location}&fromage=3&sort=date"
+            driver.get(url)
+            
+            # Wait for job cards to load
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.job_seen_beacon"))
+            )
+            
+            # Get all job cards
+            job_cards = driver.find_elements(By.CSS_SELECTOR, "div.job_seen_beacon")
+            
+            results = []
+            for job in job_cards[:15]:  # Get more to filter for recency
+                try:
+                    job_id = job.get_attribute("id")
+                    title_element = job.find_element(By.CSS_SELECTOR, "h2.jobTitle a")
+                    title = title_element.text.strip()
+                    company = job.find_element(By.CSS_SELECTOR, "span.companyName").text.strip()
+                    apply_link = title_element.get_attribute("href")
+                    
+                    # Extract job posting date
+                    job_date = None
+                    try:
+                        date_element = job.find_element(By.CSS_SELECTOR, "span.date")
+                        date_text = date_element.text.strip()
+                        job_date = self._parse_job_date(date_text)
+                    except NoSuchElementException:
+                        # If no date found, try alternative selectors
+                        try:
+                            date_element = job.find_element(By.CSS_SELECTOR, "span[data-testid='job-age']")
+                            date_text = date_element.text.strip()
+                            job_date = self._parse_job_date(date_text)
+                        except NoSuchElementException:
+                            pass
+                    
+                    # Only include jobs posted within last 48 hours
+                    if not self._is_recent_job(job_date, max_age_hours=48):
+                        continue
+                    
+                    # Try to get job description
+                    description = "Click to view full description"
+                    try:
+                        desc_snippet = job.find_element(By.CSS_SELECTOR, "div.job-snippet").text.strip()
+                        description = desc_snippet
+                    except NoSuchElementException:
+                        pass
+                    
+                    results.append({
+                        "source": "Indeed",
+                        "job_id": job_id,
+                        "title": title,
+                        "company": company,
+                        "description": description,
+                        "url": apply_link,
+                        "posted_date": job_date.isoformat() if job_date else None,
+                        "posted_text": date_text if 'date_text' in locals() else None
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing Indeed job card: {str(e)}")
+            
+            logger.info(f"Found {len(results)} recent jobs on Indeed for {job_title}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error scraping Indeed: {str(e)}")
+            return []
+        finally:
+            if 'driver' in locals():
+                driver.quit()
+    
+    async def search_linkedin(self, job_title: str, location: str = "remote") -> List[Dict]:
+        """
+        Scrape job listings from LinkedIn.
+        
+        Args:
+            job_title: The job title to search for
+            location: Job location, defaults to "remote"
+            
+        Returns:
+            List of job posting dictionaries
+        """
+        logger.info(f"Searching LinkedIn for {job_title} jobs in {location}")
+        
+        # Format job title for URL
+        formatted_job = job_title.replace(' ', '%20')
+        formatted_location = location.replace(' ', '%20')
+        
+        try:
+            url = f"https://www.linkedin.com/jobs/search/?keywords={formatted_job}&location={formatted_location}"
+            
+            response = requests.get(url, headers=self.headers)
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Find all job cards
+            job_cards = soup.select('div.base-card')
+            
+            results = []
+            for job in job_cards[:10]:  # Limit to 10 results
+                try:
+                    title_element = job.select_one('h3.base-search-card__title')
+                    title = title_element.text.strip() if title_element else "Unknown Title"
+                    
+                    company_element = job.select_one('h4.base-search-card__subtitle')
+                    company = company_element.text.strip() if company_element else "Unknown Company"
+                    
+                    link_element = job.select_one('a.base-card__full-link')
+                    link = link_element.get('href') if link_element else None
+                    
+                    location_element = job.select_one('span.job-search-card__location')
+                    job_location = location_element.text.strip() if location_element else "Unknown Location"
+                    
+                    job_id = link.split('?')[0].split('-')[-1] if link else "unknown"
+                    
+                    results.append({
+                        "source": "LinkedIn",
+                        "job_id": job_id,
+                        "title": title,
+                        "company": company,
+                        "location": job_location,
+                        "url": link
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing LinkedIn job card: {str(e)}")
+            
+            logger.info(f"Found {len(results)} jobs on LinkedIn for {job_title}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error scraping LinkedIn: {str(e)}")
+            return []
+
+    async def search_glassdoor(self, job_title: str, location: str = "remote") -> List[Dict]:
+        """
+        Scrape job listings from Glassdoor.
+        
+        Args:
+            job_title: The job title to search for
+            location: Job location, defaults to "remote"
+            
+        Returns:
+            List of job posting dictionaries
+        """
+        logger.info(f"Searching Glassdoor for {job_title} jobs in {location}")
+        
+        # Format job title for URL
+        formatted_job = job_title.replace(' ', '-')
+        formatted_location = location.replace(' ', '-')
+        
+        try:
+            driver = self._setup_selenium()
+            
+            # Navigate to Glassdoor search results
+            url = f"https://www.glassdoor.com/Job/jobs.htm?sc.keyword={formatted_job}&locT=C&locId=1147401&locKeyword={formatted_location}"
+            driver.get(url)
+            
+            # Wait for job cards to load
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "li.react-job-listing"))
+            )
+            
+            # Get all job cards
+            job_cards = driver.find_elements(By.CSS_SELECTOR, "li.react-job-listing")
+            
+            results = []
+            for job in job_cards[:10]:  # Limit to 10 results
+                try:
+                    job_id = job.get_attribute("data-id")
+                    title_element = job.find_element(By.CSS_SELECTOR, "a.jobLink")
+                    title = title_element.text.strip()
+                    company = job.find_element(By.CSS_SELECTOR, "div.job-search-results__job-tile-company").text.strip()
+                    
+                    # Get the job URL - handle relative URLs
+                    apply_link = title_element.get_attribute("href")
+                    if not apply_link.startswith("http"):
+                        apply_link = f"https://www.glassdoor.com{apply_link}"
+                    
+                    results.append({
+                        "source": "Glassdoor",
+                        "job_id": job_id,
+                        "title": title,
+                        "company": company,
+                        "description": "Click to view full description",
+                        "url": apply_link
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing Glassdoor job card: {str(e)}")
+            
+            logger.info(f"Found {len(results)} jobs on Glassdoor for {job_title}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error scraping Glassdoor: {str(e)}")
+            return []
+        finally:
+            if 'driver' in locals():
+                driver.quit()
+
+    async def search_ziprecruiter(self, job_title: str, location: str = "remote") -> List[Dict]:
+        """
+        Scrape job listings from ZipRecruiter.
+        
+        Args:
+            job_title: The job title to search for
+            location: Job location, defaults to "remote"
+            
+        Returns:
+            List of job posting dictionaries
+        """
+        logger.info(f"Searching ZipRecruiter for {job_title} jobs in {location}")
+        
+        # Format job title for URL
+        formatted_job = job_title.replace(' ', '+')
+        formatted_location = location.replace(' ', '+')
+        
+        try:
+            driver = self._setup_selenium()
+            
+            # Navigate to ZipRecruiter search results
+            url = f"https://www.ziprecruiter.com/jobs/search?q={formatted_job}&l={formatted_location}"
+            driver.get(url)
+            
+            # Wait for job cards to load
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "article.job_item"))
+            )
+            
+            # Get all job cards
+            job_cards = driver.find_elements(By.CSS_SELECTOR, "article.job_item")
+            
+            results = []
+            for job in job_cards[:10]:  # Limit to 10 results
+                try:
+                    title_element = job.find_element(By.CSS_SELECTOR, "h2.job_title")
+                    title = title_element.text.strip()
+                    
+                    company_element = job.find_element(By.CSS_SELECTOR, "a.company_name")
+                    company = company_element.text.strip()
+                    
+                    link_element = job.find_element(By.CSS_SELECTOR, "a.job_link")
+                    apply_link = link_element.get_attribute("href")
+                    
+                    job_id = f"ziprecruiter-{len(results)}"
+                    
+                    results.append({
+                        "source": "ZipRecruiter",
+                        "job_id": job_id,
+                        "title": title,
+                        "company": company,
+                        "description": "Click to view full description",
+                        "url": apply_link
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing ZipRecruiter job card: {str(e)}")
+            
+            logger.info(f"Found {len(results)} jobs on ZipRecruiter for {job_title}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error scraping ZipRecruiter: {str(e)}")
+            return []
+        finally:
+            if 'driver' in locals():
+                driver.quit()
+
+    async def search_monster(self, job_title: str, location: str = "remote") -> List[Dict]:
+        """
+        Scrape job listings from Monster.
+        
+        Args:
+            job_title: The job title to search for
+            location: Job location, defaults to "remote"
+            
+        Returns:
+            List of job posting dictionaries
+        """
+        logger.info(f"Searching Monster for {job_title} jobs in {location}")
+        
+        # Format job title for URL
+        formatted_job = job_title.replace(' ', '-')
+        formatted_location = location.replace(' ', '-')
+        
+        try:
+            driver = self._setup_selenium()
+            
+            # Navigate to Monster search results
+            url = f"https://www.monster.com/jobs/search?q={formatted_job}&where={formatted_location}"
+            driver.get(url)
+            
+            # Wait for job cards to load
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "section.card-content"))
+            )
+            
+            # Get all job cards
+            job_cards = driver.find_elements(By.CSS_SELECTOR, "section.card-content")
+            
+            results = []
+            for job in job_cards[:10]:  # Limit to 10 results
+                try:
+                    title_element = job.find_element(By.CSS_SELECTOR, "h3.title")
+                    title = title_element.text.strip()
+                    
+                    company_element = job.find_element(By.CSS_SELECTOR, "div.company")
+                    company = company_element.text.strip()
+                    
+                    link_element = job.find_element(By.CSS_SELECTOR, "a.job-cardstyle__JobCardComponent")
+                    apply_link = link_element.get_attribute("href")
+                    
+                    job_id = f"monster-{len(results)}"
+                    
+                    results.append({
+                        "source": "Monster",
+                        "job_id": job_id,
+                        "title": title,
+                        "company": company,
+                        "description": "Click to view full description",
+                        "url": apply_link
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing Monster job card: {str(e)}")
+            
+            logger.info(f"Found {len(results)} jobs on Monster for {job_title}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error scraping Monster: {str(e)}")
+            return []
+        finally:
+            if 'driver' in locals():
+                driver.quit()
+
+    async def search_google_jobs(self, job_title: str, location: str = "remote") -> List[Dict]:
+        """
+        Scrape job listings from Google Jobs.
+        
+        Args:
+            job_title: The job title to search for
+            location: Job location, defaults to "remote"
+            
+        Returns:
+            List of job posting dictionaries
+        """
+        logger.info(f"Searching Google Jobs for {job_title} jobs in {location}")
+        
+        # Format job title for URL
+        formatted_job = job_title.replace(' ', '+')
+        formatted_location = location.replace(' ', '+')
+        
+        try:
+            driver = self._setup_selenium()
+            
+            # Navigate to Google Jobs search results
+            url = f"https://www.google.com/search?q={formatted_job}+{formatted_location}+jobs&ibp=htl;jobs"
+            driver.get(url)
+            
+            # Wait for job cards to load
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.PwjeAc"))
+            )
+            
+            # Get all job cards
+            job_cards = driver.find_elements(By.CSS_SELECTOR, "div.PwjeAc")
+            
+            results = []
+            for i, job in enumerate(job_cards[:10]):  # Limit to 10 results
+                try:
+                    # Click on job to load details
+                    job.click()
+                    time.sleep(1)
+                    
+                    # Extract job details
+                    title_element = WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "h2.KLsYvd"))
+                    )
+                    title = title_element.text.strip()
+                    
+                    company_element = driver.find_element(By.CSS_SELECTOR, "div.nJlQNd")
+                    company = company_element.text.strip()
+                    
+                    # Get the apply button URL if available
+                    try:
+                        apply_element = driver.find_element(By.CSS_SELECTOR, "a.pMhGee")
+                        apply_link = apply_element.get_attribute("href")
+                    except:
+                        apply_link = url
+                    
+                    job_id = f"google-{i}"
+                    
+                    # Try to get job description
+                    try:
+                        description_element = driver.find_element(By.CSS_SELECTOR, "span.HBvzbc")
+                        description = description_element.text.strip()
+                    except:
+                        description = "Click to view full description"
+                    
+                    results.append({
+                        "source": "Google Jobs",
+                        "job_id": job_id,
+                        "title": title,
+                        "company": company,
+                        "description": description,
+                        "url": apply_link
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing Google Jobs card: {str(e)}")
+            
+            logger.info(f"Found {len(results)} jobs on Google Jobs for {job_title}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error scraping Google Jobs: {str(e)}")
+            return []
+        finally:
+            if 'driver' in locals():
+                driver.quit()
+    
+    async def search_simplyhired(self, job_title: str, location: str = "remote") -> List[Dict]:
+        """
+        Scrape job listings from SimplyHired.
+        
+        Args:
+            job_title: The job title to search for
+            location: Job location, defaults to "remote"
+            
+        Returns:
+            List of job posting dictionaries
+        """
+        logger.info(f"Searching SimplyHired for {job_title} jobs in {location}")
+        
+        # Format job title for URL
+        formatted_job = job_title.replace(' ', '+')
+        formatted_location = location.replace(' ', '+')
+        
+        try:
+            driver = self._setup_selenium()
+            
+            # Navigate to SimplyHired search results
+            url = f"https://www.simplyhired.com/search?q={formatted_job}&l={formatted_location}"
+            driver.get(url)
+            
+            # Wait for job cards to load
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.SerpJob-jobCard"))
+            )
+            
+            # Get all job cards
+            job_cards = driver.find_elements(By.CSS_SELECTOR, "div.SerpJob-jobCard")
+            
+            results = []
+            for job in job_cards[:10]:  # Limit to 10 results
+                try:
+                    title_element = job.find_element(By.CSS_SELECTOR, "h3.jobposting-title")
+                    title = title_element.text.strip()
+                    
+                    company_element = job.find_element(By.CSS_SELECTOR, "span.jobposting-company")
+                    company = company_element.text.strip()
+                    
+                    link_element = job.find_element(By.CSS_SELECTOR, "a.jobposting-link")
+                    apply_link = link_element.get_attribute("href")
+                    if not apply_link.startswith("http"):
+                        apply_link = f"https://www.simplyhired.com{apply_link}"
+                    
+                    job_id = f"simplyhired-{len(results)}"
+                    
+                    # Try to get job description snippet
+                    try:
+                        description_element = job.find_element(By.CSS_SELECTOR, "p.jobposting-snippet")
+                        description = description_element.text.strip()
+                    except NoSuchElementException:
+                        description = "Click to view full description"
+                    
+                    results.append({
+                        "source": "SimplyHired",
+                        "job_id": job_id,
+                        "title": title,
+                        "company": company,
+                        "description": description,
+                        "url": apply_link
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing SimplyHired job card: {str(e)}")
+            
+            logger.info(f"Found {len(results)} jobs on SimplyHired for {job_title}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error scraping SimplyHired: {str(e)}")
+            return []
+        finally:
+            if 'driver' in locals():
+                driver.quit()
+
+    async def search_dice(self, job_title: str, location: str = "remote") -> List[Dict]:
+        """
+        Scrape job listings from Dice (tech jobs).
+        
+        Args:
+            job_title: The job title to search for
+            location: Job location, defaults to "remote"
+            
+        Returns:
+            List of job posting dictionaries
+        """
+        logger.info(f"Searching Dice for {job_title} jobs in {location}")
+        
+        # Format job title for URL
+        formatted_job = job_title.replace(' ', '%20')
+        formatted_location = location.replace(' ', '%20')
+        
+        try:
+            driver = self._setup_selenium()
+            
+            # Navigate to Dice search results
+            url = f"https://www.dice.com/jobs?q={formatted_job}&location={formatted_location}"
+            driver.get(url)
+            
+            # Wait for job cards to load
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.search-card"))
+            )
+            
+            # Get all job cards
+            job_cards = driver.find_elements(By.CSS_SELECTOR, "div.search-card")
+            
+            results = []
+            for job in job_cards[:10]:  # Limit to 10 results
+                try:
+                    title_element = job.find_element(By.CSS_SELECTOR, "a.card-title-link")
+                    title = title_element.text.strip()
+                    
+                    company_element = job.find_element(By.CSS_SELECTOR, "a.company-name-link")
+                    company = company_element.text.strip()
+                    
+                    apply_link = title_element.get_attribute("href")
+                    
+                    # Generate a unique job ID
+                    job_id = f"dice-{len(results)}"
+                    
+                    # Try to get job location
+                    try:
+                        location_element = job.find_element(By.CSS_SELECTOR, "span.search-result-location")
+                        job_location = location_element.text.strip()
+                    except NoSuchElementException:
+                        job_location = location
+                    
+                    results.append({
+                        "source": "Dice",
+                        "job_id": job_id,
+                        "title": title,
+                        "company": company,
+                        "location": job_location,
+                        "description": "Click to view full description",
+                        "url": apply_link
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing Dice job card: {str(e)}")
+            
+            logger.info(f"Found {len(results)} jobs on Dice for {job_title}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error scraping Dice: {str(e)}")
+            return []
+        finally:
+            if 'driver' in locals():
+                driver.quit()
+
+    async def search_angellist(self, job_title: str, location: str = "remote") -> List[Dict]:
+        """
+        Scrape job listings from AngelList/Wellfound (startup jobs).
+        
+        Args:
+            job_title: The job title to search for
+            location: Job location, defaults to "remote"
+            
+        Returns:
+            List of job posting dictionaries
+        """
+        logger.info(f"Searching AngelList/Wellfound for {job_title} jobs in {location}")
+        
+        # Format job title for URL
+        formatted_job = job_title.replace(' ', '%20')
+        formatted_location = location.replace(' ', '%20')
+        
+        try:
+            driver = self._setup_selenium()
+            
+            # Navigate to Wellfound (formerly AngelList) search results
+            url = f"https://wellfound.com/jobs?role={formatted_job}&location={formatted_location}"
+            driver.get(url)
+            
+            # Wait for job cards to load
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.styles_component__JsszL"))
+            )
+            
+            # Get all job cards
+            job_cards = driver.find_elements(By.CSS_SELECTOR, "div.styles_component__JsszL")
+            
+            results = []
+            for job in job_cards[:10]:  # Limit to 10 results
+                try:
+                    title_element = job.find_element(By.CSS_SELECTOR, "div.styles_title__jvEgi a")
+                    title = title_element.text.strip()
+                    
+                    company_element = job.find_element(By.CSS_SELECTOR, "div.styles_company__MywSN")
+                    company = company_element.text.strip()
+                    
+                    apply_link = title_element.get_attribute("href")
+                    
+                    # Generate a unique job ID
+                    job_id = f"angellist-{len(results)}"
+                    
+                    results.append({
+                        "source": "AngelList/Wellfound",
+                        "job_id": job_id,
+                        "title": title,
+                        "company": company,
+                        "description": "Click to view full description",
+                        "url": apply_link
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing AngelList/Wellfound job card: {str(e)}")
+            
+            logger.info(f"Found {len(results)} jobs on AngelList/Wellfound for {job_title}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error scraping AngelList/Wellfound: {str(e)}")
+            return []
+        finally:
+            if 'driver' in locals():
+                driver.quit()
+    
+    async def get_jobs(self, job_title: str, location: str = "remote") -> List[Dict]:
+        """
+        Get jobs from multiple sources.
+        
+        Args:
+            job_title: The job title to search for
+            location: Job location, defaults to "remote"
+            
+        Returns:
+            List of combined job postings
+        """
+        all_jobs = []
+        sources = [
+            self.search_indeed,
+            self.search_linkedin,
+            self.search_glassdoor,
+            self.search_ziprecruiter,
+            self.search_monster,
+            self.search_google_jobs,
+            # New sources added
+            self.search_simplyhired,
+            self.search_dice,
+            self.search_angellist
+        ]
+        
+        for search_func in sources:
+            try:
+                # Get jobs from this source
+                source_jobs = await search_func(job_title, location)
+                all_jobs.extend(source_jobs)
+                
+                # Add delay to avoid rate limiting
+                time.sleep(random.uniform(1, 3))
+                
+            except Exception as e:
+                logger.error(f"Error in {search_func.__name__}: {str(e)}")
+                continue
+        
+        # Sort by company name for consistency
+        all_jobs.sort(key=lambda x: x.get("company", ""))
+        
+        # Log the total number of jobs found
+        logger.info(f"Found a total of {len(all_jobs)} jobs for {job_title} in {location}")
+        
+        return all_jobs
+
+    async def get_job_description(self, job_url: str) -> Optional[str]:
+        """
+        Get the full job description from a job listing URL.
+        
+        Args:
+            job_url: The URL of the job listing
+            
+        Returns:
+            str: The job description or None if not found
+        """
+        try:
+            driver = self._setup_selenium()
+            driver.get(job_url)
+            
+            # Wait for page to load
+            time.sleep(3)
+            
+            # Different selectors for different job boards
+            selectors = [
+                "div.job-description",  # Indeed
+                "div.description__text",  # LinkedIn
+                "div.jobDescriptionText",  # Indeed alternative
+                "div#jobDescriptionText",  # Indeed alternative
+                "div.show-more-less-html__markup",  # LinkedIn alternative
+                "div.jobDescriptionContent",  # Glassdoor
+                "div.job_description",  # ZipRecruiter
+                "div.job-description-content",  # Monster
+                "span.HBvzbc",  # Google Jobs
+                "div.viewjob-description",  # SimplyHired
+                "div[data-testid='jobDescription']",  # Dice
+                "div.styles_component__vhR_y"  # AngelList/Wellfound
+            ]
+            
+            for selector in selectors:
+                try:
+                    description_element = WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+                    )
+                    return description_element.text.strip()
+                except:
+                    continue
+            
+            # If none of the selectors worked, try getting the entire body
+            body = driver.find_element(By.TAG_NAME, "body")
+            return body.text
+            
+        except Exception as e:
+            logger.error(f"Error getting job description: {str(e)}")
+            return None
+        finally:
+            if 'driver' in locals():
+                driver.quit()
+    
+    def _parse_job_date(self, date_text: str) -> Optional[datetime]:
+        """
+        Parse job posting date from various formats.
+        
+        Args:
+            date_text: The date text from job posting
+            
+        Returns:
+            datetime: Parsed date or None if parsing fails
+        """
+        if not date_text:
+            return None
+            
+        date_text = date_text.lower().strip()
+        now = datetime.now()
+        
+        try:
+            # Handle relative dates
+            if 'today' in date_text or 'just posted' in date_text:
+                return now
+            elif 'yesterday' in date_text:
+                return now - timedelta(days=1)
+            elif 'days ago' in date_text or 'day ago' in date_text:
+                # Extract number of days
+                days_match = re.search(r'(\d+)\s*days?\s+ago', date_text)
+                if days_match:
+                    days = int(days_match.group(1))
+                    return now - timedelta(days=days)
+            elif 'hours ago' in date_text or 'hour ago' in date_text:
+                # Extract number of hours
+                hours_match = re.search(r'(\d+)\s*hours?\s+ago', date_text)
+                if hours_match:
+                    hours = int(hours_match.group(1))
+                    return now - timedelta(hours=hours)
+            elif 'minutes ago' in date_text or 'minute ago' in date_text:
+                # Extract number of minutes
+                minutes_match = re.search(r'(\d+)\s*minutes?\s+ago', date_text)
+                if minutes_match:
+                    minutes = int(minutes_match.group(1))
+                    return now - timedelta(minutes=minutes)
+            elif 'weeks ago' in date_text or 'week ago' in date_text:
+                # Extract number of weeks
+                weeks_match = re.search(r'(\d+)\s*weeks?\s+ago', date_text)
+                if weeks_match:
+                    weeks = int(weeks_match.group(1))
+                    return now - timedelta(weeks=weeks)
+            elif 'months ago' in date_text or 'month ago' in date_text:
+                # Extract number of months (approximate)
+                months_match = re.search(r'(\d+)\s*months?\s+ago', date_text)
+                if months_match:
+                    months = int(months_match.group(1))
+                    return now - timedelta(days=months * 30)
+            
+            # Try to parse absolute dates
+            date_patterns = [
+                '%Y-%m-%d',
+                '%m/%d/%Y',
+                '%d/%m/%Y',
+                '%b %d, %Y',
+                '%B %d, %Y',
+                '%d %b %Y',
+                '%d %B %Y'
+            ]
+            
+            for pattern in date_patterns:
+                try:
+                    return datetime.strptime(date_text, pattern)
+                except ValueError:
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"Error parsing date '{date_text}': {str(e)}")
+            
+        return None
+    
+    def _is_recent_job(self, job_date: Optional[datetime], max_age_hours: int = 48) -> bool:
+        """
+        Check if a job was posted within the specified time frame.
+        
+        Args:
+            job_date: The date the job was posted
+            max_age_hours: Maximum age in hours (default 48 hours)
+            
+        Returns:
+            bool: True if job is recent, False otherwise
+        """
+        if not job_date:
+            # If we can't determine the date, assume it's recent to be safe
+            return True
+            
+        cutoff_date = datetime.now() - timedelta(hours=max_age_hours)
+        return job_date >= cutoff_date

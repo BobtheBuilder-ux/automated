@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Automated Job Application System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"],
+        input[type="email"] {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4285F4;  /* Google Blue */
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #3367D6;  /* Darker Google Blue */
+        }
+        .error {
+            color: red;
+            font-size: 14px;
+        }
+        .success {
+            color: green;
+            font-size: 14px;
+        }
+        .ai-badge {
+            display: inline-block;
+            background-color: #4285F4;
+            color: white;
+            font-size: 12px;
+            padding: 3px 8px;
+            border-radius: 10px;
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Automated Job Application System <span class="ai-badge">Powered by Gemini</span></h1>
+        <p>Generate tailored cover letters for your job applications using Google's Gemini AI.</p>
+        
+        {% if message %}
+        <div class="{% if error %}error{% else %}success{% endif %}">
+            {{ message }}
+        </div>
+        {% endif %}
+        
+        <form action="/submit" method="post" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="full_name">Full Name:</label>
+                <input type="text" id="full_name" name="full_name" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="email">Email Address:</label>
+                <input type="email" id="email" name="email" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="job_title">Job Title:</label>
+                <input type="text" id="job_title" name="job_title" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="cv">CV (PDF only):</label>
+                <input type="file" id="cv" name="cv" accept=".pdf" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="certificate">Certificate (Optional - PDF or ZIP):</label>
+                <input type="file" id="certificate" name="certificate" accept=".pdf,.zip">
+            </div>
+            
+            <button type="submit">Generate Cover Letter with Gemini</button>
+        </form>
+
+        {% if cover_letter %}
+        <div class="cover-letter-preview">
+            <h2>Generated Cover Letter:</h2>
+            <pre>{{ cover_letter }}</pre>
+            <p><a href="{{ pdf_url }}" target="_blank">Download as PDF</a></p>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>

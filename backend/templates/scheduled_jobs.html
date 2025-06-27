@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Automated Job Application System - Scheduled Jobs</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .jobs-list {
+            margin-top: 20px;
+        }
+        .job-card {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+            background-color: white;
+        }
+        .job-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .job-title {
+            font-weight: bold;
+            font-size: 18px;
+            color: #4285F4;
+        }
+        .job-id {
+            color: #777;
+            font-size: 14px;
+        }
+        .job-status {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-scheduled {
+            background-color: #e7f4ff;
+            color: #0066cc;
+        }
+        .status-running {
+            background-color: #fff4e5;
+            color: #ff9900;
+        }
+        .status-completed {
+            background-color: #e5ffe5;
+            color: #008800;
+        }
+        .status-cancelled {
+            background-color: #f5f5f5;
+            color: #555555;
+        }
+        .status-error {
+            background-color: #ffe5e5;
+            color: #cc0000;
+        }
+        .job-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        .detail-item {
+            border-left: 3px solid #4285F4;
+            padding-left: 10px;
+        }
+        .detail-label {
+            font-size: 14px;
+            color: #555;
+            margin-bottom: 3px;
+        }
+        .detail-value {
+            font-weight: bold;
+        }
+        .job-actions {
+            text-align: right;
+            margin-top: 15px;
+        }
+        .cancel-btn {
+            background-color: #f44336;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 15px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .cancel-btn:hover {
+            background-color: #d32f2f;
+        }
+        .back-link {
+            margin-top: 20px;
+            display: inline-block;
+            color: #4285F4;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        .error-message {
+            color: red;
+            font-weight: bold;
+            margin-top: 10px;
+            padding: 8px;
+            background-color: #fff0f0;
+            border-left: 3px solid red;
+            display: none;
+        }
+    </style>
+    <script>
+        function cancelJob(jobId) {
+            if (confirm('Are you sure you want to cancel this scheduled job?')) {
+                // Display "Cancelling..." text
+                document.getElementById('status-' + jobId).innerText = 'Cancelling...';
+                
+                // Send request to cancel job
+                fetch('/cancel-job/' + jobId, {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Update job status on page
+                        document.getElementById('status-' + jobId).innerText = 'Cancelled';
+                        document.getElementById('status-' + jobId).className = 'job-status status-cancelled';
+                        
+                        // Disable cancel button
+                        document.getElementById('cancel-btn-' + jobId).disabled = true;
+                        document.getElementById('cancel-btn-' + jobId).style.backgroundColor = '#ccc';
+                        document.getElementById('cancel-btn-' + jobId).style.cursor = 'default';
+                    } else {
+                        // Show error message
+                        document.getElementById('error-' + jobId).innerText = data.message;
+                        document.getElementById('error-' + jobId).style.display = 'block';
+                        
+                        // Reset status text
+                        document.getElementById('status-' + jobId).innerText = 
+                            document.getElementById('status-' + jobId).getAttribute('data-original-status');
+                    }
+                })
+                .catch(error => {
+                    // Show error message
+                    document.getElementById('error-' + jobId).innerText = 'Error: ' + error;
+                    document.getElementById('error-' + jobId).style.display = 'block';
+                    
+                    // Reset status text
+                    document.getElementById('status-' + jobId).innerText = 
+                        document.getElementById('status-' + jobId).getAttribute('data-original-status');
+                });
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>Scheduled Jobs</h1>
+        
+        <div class="jobs-list">
+            {% if jobs %}
+                {% for job in jobs %}
+                <div class="job-card">
+                    <div class="job-header">
+                        <div>
+                            <div class="job-title">{{ job.job_title }}</div>
+                            <div class="job-id">ID: {{ job.job_id }}</div>
+                        </div>
+                        <div>
+                            <span id="status-{{ job.job_id }}" data-original-status="{{ job.status }}" class="job-status status-{{ job.status }}">{{ job.status|title }}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="job-details">
+                        <div class="detail-item">
+                            <div class="detail-label">User</div>
+                            <div class="detail-value">{{ job.user_name }}</div>
+                        </div>
+                        
+                        <div class="detail-item">
+                            <div class="detail-label">Email</div>
+                            <div class="detail-value">{{ job.user_email }}</div>
+                        </div>
+                        
+                        <div class="detail-item">
+                            <div class="detail-label">Location</div>
+                            <div class="detail-value">{{ job.location }}</div>
+                        </div>
+                        
+                        <div class="detail-item">
+                            <div class="detail-label">Schedule Type</div>
+                            <div class="detail-value">{{ job.schedule_type|title }}</div>
+                        </div>
+                    </div>
+                    
+                    <div class="job-details">
+                        <div class="detail-item">
+                            <div class="detail-label">Max Applications</div>
+                            <div class="detail-value">{{ job.max_applications_per_run }}</div>
+                        </div>
+                        
+                        <div class="detail-item">
+                            <div class="detail-label">Created</div>
+                            <div class="detail-value">{{ job.created_at }}</div>
+                        </div>
+                        
+                        <div class="detail-item">
+                            <div class="detail-label">Last Run</div>
+                            <div class="detail-value">{% if job.last_run %}{{ job.last_run }}{% else %}Not yet run{% endif %}</div>
+                        </div>
+                        
+                        <div class="detail-item">
+                            <div class="detail-label">Next Run</div>
+                            <div class="detail-value">{% if job.next_run %}{{ job.next_run }}{% else %}N/A{% endif %}</div>
+                        </div>
+                    </div>
+                    
+                    {% if job.schedule_type == "recurring" %}
+                    <div class="job-details">
+                        <div class="detail-item">
+                            <div class="detail-label">Frequency</div>
+                            <div class="detail-value">Every {{ job.frequency_days }} days</div>
+                        </div>
+                        
+                        <div class="detail-item">
+                            <div class="detail-label">Total Runs</div>
+                            <div class="detail-value">{% if job.total_runs %}{{ job.runs_completed }} / {{ job.total_runs }}{% else %}{{ job.runs_completed }} / Unlimited{% endif %}</div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    {% if job.last_error %}
+                    <div class="error-message" style="display: block;">
+                        Error on last run: {{ job.last_error }}
+                    </div>
+                    {% endif %}
+                    
+                    <div class="error-message" id="error-{{ job.job_id }}"></div>
+                    
+                    {% if job.status not in ["completed", "cancelled"] %}
+                    <div class="job-actions">
+                        <button id="cancel-btn-{{ job.job_id }}" class="cancel-btn" onclick="cancelJob('{{ job.job_id }}')">Cancel Job</button>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            {% else %}
+                <p>No scheduled jobs found.</p>
+            {% endif %}
+        </div>
+        
+        <a href="/auto-apply" class="back-link">← Back to Auto-Apply Dashboard</a>
+    </div>
+</body>
+</html>
