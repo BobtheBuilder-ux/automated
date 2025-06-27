@@ -1,0 +1,11 @@
+# Cron configuration for Backend Keep-Alive
+# This file contains the cron job to keep the backend alive every 13 minutes
+
+# Run keep-alive script every 13 minutes
+*/13 * * * * /Users/Bobbieberry/Desktop/automated/backend/keep_alive.sh
+
+# Alternative: Run every 10 minutes (more frequent)
+# */10 * * * * /Users/Bobbieberry/Desktop/automated/backend/keep_alive.sh
+
+# Alternative: Run every 15 minutes (less frequent but still within Render's limit)
+# */15 * * * * /Users/Bobbieberry/Desktop/automated/backend/keep_alive.sh

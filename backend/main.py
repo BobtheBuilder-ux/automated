@@ -54,11 +54,11 @@ app = FastAPI(
 # Get allowed origins from environment
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
 
-# Add CORS middleware
+# Add CORS middleware - Fixed for production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS + ["*"],  # Add your frontend domain here
-    allow_credentials=True,
+    allow_origins=["*"],  # Allow all origins for production
+    allow_credentials=False,  # Must be False when using "*"
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
@@ -84,9 +84,14 @@ async def root(request: Request):
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/auto-apply")
 
+# Production-ready server configuration
 if __name__ == "__main__":
-    # Run the application with uvicorn
+    # Development mode
     port = int(os.getenv("PORT", 8000))
-    host = os.getenv("HOST", "0.0.0.0")  # Bind to all interfaces for production
-    print(f"🚀 Starting server on {host}:{port}")
-    uvicorn.run("main:app", host=host, port=port, reload=False)
+    host = os.getenv("HOST", "0.0.0.0")
+    print(f"🚀 Starting development server on {host}:{port}")
+    uvicorn.run("main:app", host=host, port=port, reload=False, log_level="info")
+else:
+    # Production mode - this is what Render will use
+    print("🚀 Production server starting...")
+    # The app object will be imported and run by the WSGI server

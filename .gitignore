@@ -1,9 +1,9 @@
-# Environment variables
+# Environment variables and sensitive files
 .env
+*.env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.production
+.env.staging
 
 # Python
 __pycache__/
@@ -28,24 +28,18 @@ wheels/
 *.egg
 MANIFEST
 
-# Virtual environments
+# Virtual Environment
 venv/
-env/
 ENV/
-env.bak/
-venv.bak/
+env/
+.venv/
 
-# IDEs
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-# Logs
-*.log
-logs/
-job_scraping.log
 
 # OS
 .DS_Store
@@ -56,7 +50,11 @@ job_scraping.log
 ehthumbs.db
 Thumbs.db
 
-# Node.js (for frontend)
+# Logs
+*.log
+job_scraping.log
+
+# Node.js (Frontend)
 node_modules/
 npm-debug.log*
 yarn-debug.log*
@@ -66,31 +64,31 @@ yarn-error.log*
 # Next.js
 .next/
 out/
+.vercel
 
-# Uploads and temporary files
+# Uploads and generated files
 backend/static/uploads/
-backend/static/application_history/
-backend/static/scheduler/
-uploads/
+static/uploads/
+*.pdf
+*.zip
+
+# Firebase
+firebase-service-account.json
+firebase-admin-key.json
+
+# Temporary files
+*.tmp
+*.temp
 temp/
 tmp/
 
-# Firebase
-firebase-debug.log
-.firebase/
+# Cron backups
+crontab_backup_*
 
-# Coverage reports
-htmlcov/
-.coverage
-.pytest_cache/
-coverage.xml
+# Backend specific
+backend/backend/static/
+backend/job_scraping.log
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version
-
-# Database
-*.db
-*.sqlite3
+# Application history
+backend/static/application_history/
+backend/static/scheduler/
