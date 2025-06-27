@@ -23,7 +23,6 @@ firebase-admin==6.2.0
 gunicorn>=21.2.0
 # Email sending
 sendgrid>=6.10.0
-smtplib-ssl==1.0.4
 lxml==4.9.3
 html5lib==1.1
 chromedriver-autoinstaller==0.6.2
