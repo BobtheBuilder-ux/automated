@@ -11,12 +11,16 @@ import pathlib
 from routes.application import router as application_router
 from utils.scheduler import JobApplicationScheduler
 from services.auto_job_discovery import auto_job_discovery
+from services.auto_applicator import AutoApplicator
 
 # Load environment variables
 load_dotenv()
 
 # Global scheduler instance
 scheduler = JobApplicationScheduler()
+
+# Initialize services globally
+auto_applicator = AutoApplicator()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -83,6 +87,24 @@ async def root(request: Request):
     """
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/auto-apply")
+
+# Event handler for startup
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup"""
+    try:
+        # Restore any active auto-apply schedules
+        await auto_applicator.restore_schedules_on_startup()
+        print("✅ Auto-applicator schedules restored successfully")
+    except Exception as e:
+        print(f"⚠️ Warning: Failed to restore schedules: {e}")
+    
+    # Start auto job discovery if not already running
+    try:
+        await auto_job_discovery.start_auto_discovery(interval_hours=1)
+        print("✅ Auto job discovery started successfully")
+    except Exception as e:
+        print(f"⚠️ Warning: Auto job discovery startup failed: {e}")
 
 # Production-ready server configuration
 if __name__ == "__main__":

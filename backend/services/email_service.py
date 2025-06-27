@@ -655,3 +655,118 @@ Automated Job Application System
             text_content=text_content,
             html_content=html_content
         )
+    
+    async def send_hourly_application_summary(
+        self,
+        recipient_email: str,
+        name: str,
+        job_title: str,
+        applications: List[Dict],
+        total_applications_today: int
+    ) -> Dict[str, any]:
+        """
+        Send hourly application summary email.
+        
+        Args:
+            recipient_email: Email address to send to
+            name: Name of the applicant
+            job_title: Job title being applied for
+            applications: List of applications submitted this hour
+            total_applications_today: Total applications submitted today
+            
+        Returns:
+            Dictionary with success status
+        """
+        try:
+            subject = f"Hourly Auto-Apply Update: {len(applications)} New Applications for {job_title}"
+            
+            # Create HTML email content
+            applications_html = ""
+            for app in applications:
+                applications_html += f"""
+                <div style="background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #007bff;">
+                    <h4 style="margin: 0 0 10px 0; color: #2c3e50;">{app.get('title', 'N/A')}</h4>
+                    <p style="margin: 5px 0;"><strong>Company:</strong> {app.get('company', 'N/A')}</p>
+                    <p style="margin: 5px 0;"><strong>Source:</strong> {app.get('source', 'N/A')}</p>
+                    <p style="margin: 5px 0;"><strong>Applied At:</strong> {app.get('applied_at', 'N/A')}</p>
+                    <p style="margin: 5px 0;"><strong>Job URL:</strong> <a href="{app.get('url', '#')}" target="_blank">View Job</a></p>
+                </div>
+                """
+            
+            html_content = f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; color: white;">
+                    <h1 style="margin: 0; font-size: 28px;">🚀 Hourly Auto-Apply Update</h1>
+                    <p style="margin: 10px 0 0 0; font-size: 16px;">Your automated job applications are working!</p>
+                </div>
+                
+                <div style="padding: 30px; background: white;">
+                    <h2 style="color: #2c3e50; margin-bottom: 20px;">Hi {name},</h2>
+                    
+                    <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                        <h3 style="margin: 0 0 15px 0; color: #27ae60;">✅ This Hour's Results</h3>
+                        <p style="margin: 5px 0; font-size: 18px;"><strong>{len(applications)} new applications</strong> submitted for <strong>{job_title}</strong></p>
+                        <p style="margin: 5px 0; color: #666;">Total applications today: <strong>{total_applications_today}</strong></p>
+                    </div>
+                    
+                    <h3 style="color: #2c3e50; margin: 30px 0 15px 0;">📋 Applications Submitted</h3>
+                    {applications_html}
+                    
+                    <div style="background: #f0f8ff; padding: 20px; border-radius: 8px; margin: 30px 0;">
+                        <h4 style="margin: 0 0 10px 0; color: #2c3e50;">💡 What's Next?</h4>
+                        <ul style="margin: 10px 0; padding-left: 20px;">
+                            <li>We'll continue applying to new {job_title} positions every hour</li>
+                            <li>You'll receive updates when new applications are submitted</li>
+                            <li>Cover letters have been automatically generated and sent</li>
+                            <li>You can view all applications in your dashboard</li>
+                        </ul>
+                    </div>
+                    
+                    <div style="text-align: center; margin: 30px 0;">
+                        <p style="color: #666;">Your hourly auto-apply is running successfully! 🎯</p>
+                        <p style="color: #666; font-size: 14px;">To stop or modify your auto-apply settings, please contact support.</p>
+                    </div>
+                </div>
+                
+                <div style="background: #f8f9fa; padding: 20px; text-align: center; color: #666; font-size: 14px;">
+                    <p>This is an automated email from your Job Application Assistant.</p>
+                    <p>Keep applying and stay positive! 💪</p>
+                </div>
+            </body>
+            </html>
+            """
+            
+            # Plain text version
+            applications_text = "\n".join([
+                f"• {app.get('title', 'N/A')} at {app.get('company', 'N/A')} (via {app.get('source', 'N/A')})"
+                for app in applications
+            ])
+            
+            text_content = f"""
+Hourly Auto-Apply Update for {name}
+
+This Hour's Results:
+- {len(applications)} new applications submitted for {job_title}
+- Total applications today: {total_applications_today}
+
+Applications Submitted:
+{applications_text}
+
+Your hourly auto-apply is running successfully! We'll continue applying to new {job_title} positions every hour.
+
+Best regards,
+Your Job Application Assistant
+            """
+            
+            return await self._send_email(
+                to_email=recipient_email,
+                subject=subject,
+                html_content=html_content,
+                text_content=text_content,
+                category="hourly_summary"
+            )
+            
+        except Exception as e:
+            logger.error(f"Error sending hourly application summary: {str(e)}")
+            return {"success": False, "error": str(e)}
