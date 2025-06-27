@@ -303,6 +303,19 @@ class JobApplicationScheduler:
         """Update an existing job."""
         await self._save_job(job_id, job_data)
     
+    async def _add_job(self, job_id: str, job_data: Dict):
+        """Add a new job."""
+        await self._save_job(job_id, job_data)
+    
+    async def get_job_details(self, job_id: str) -> Optional[Dict]:
+        """Get details for a specific job."""
+        jobs = await self._get_scheduled_jobs()
+        return jobs.get(job_id)
+    
+    async def get_scheduled_jobs(self, user_id: str) -> List[Dict]:
+        """Get scheduled jobs for a user (alias for get_user_jobs)."""
+        return await self.get_user_jobs(user_id)
+        
     async def _save_all_jobs(self, jobs: Dict[str, Dict]):
         """Save all jobs to file."""
         try:

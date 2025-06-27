@@ -326,7 +326,7 @@ async def schedule_auto_apply(
                 "request": request, 
                 "message": f"Auto-application job scheduled successfully! Job ID: {job_id}", 
                 "job_id": job_id,
-                "schedule_info": job_scheduler.get_job_details(job_id)
+                "schedule_info": await job_scheduler.get_job_details(job_id)
             }
         )
         
@@ -947,3 +947,119 @@ async def get_discovery_status():
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+@router.post("/api/auto-apply")
+async def api_schedule_auto_apply(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    full_name: Annotated[str, Form()],
+    email: Annotated[str, Form()],
+    job_title: Annotated[str, Form()],
+    location: Annotated[str, Form()],
+    cv: Annotated[UploadFile, File()],
+    max_applications: Annotated[int, Form()] = 5,
+    schedule_type: Annotated[str, Form()] = "once",
+    frequency_days: Annotated[int, Form()] = 7,
+    total_runs: Annotated[Optional[int], Form()] = None
+):
+    """
+    API version of auto-apply scheduling that returns JSON responses.
+    """
+    # Check rate limit
+    rate_check = rate_limiter.check_rate_limit(email)
+    if not rate_check["allowed"]:
+        return JSONResponse(
+            content={"success": False, "error": rate_check["message"]},
+            status_code=429
+        )
+    
+    try:
+        # Save uploaded CV
+        cv_success, cv_path = await file_handler.save_uploaded_file(
+            cv, full_name, file_type="cv"
+        )
+        
+        if not cv_success:
+            return JSONResponse(
+                content={"success": False, "error": f"Error saving CV: {cv_path}"},
+                status_code=400
+            )
+        
+        # Generate a unique user ID
+        user_id = str(uuid.uuid4())
+        
+        # Schedule the auto-application task
+        scheduler = get_scheduler()
+        job_id = await scheduler.schedule_auto_application(
+            user_id=user_id,
+            user_name=full_name,
+            user_email=email,
+            job_title=job_title,
+            location=location,
+            cv_path=cv_path,
+            schedule_type=schedule_type,
+            max_applications_per_run=max_applications,
+            frequency_days=frequency_days,
+            total_runs=total_runs
+        )
+        
+        # Get job details for response
+        job_details = await scheduler.get_job_details(job_id)
+        
+        # Increment rate limit counters
+        rate_limiter.increment_counters(email)
+        
+        return JSONResponse(content={
+            "success": True,
+            "message": f"Auto-application job scheduled successfully!",
+            "data": {
+                "job_id": job_id,
+                "schedule_info": job_details,
+                "user_id": user_id,
+                "cv_path": cv_path
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error in API auto-apply: {str(e)}")
+        return JSONResponse(
+            content={"success": False, "error": f"An error occurred: {str(e)}"},
+            status_code=500
+        )
+
+@router.get("/api/scheduled-jobs/{user_email}")
+async def api_get_scheduled_jobs_by_email(user_email: str):
+    """
+    API endpoint to get scheduled jobs by user email.
+    """
+    try:
+        # Get all jobs and filter by email
+        all_jobs = await get_scheduler().get_all_jobs()
+        user_jobs = []
+        
+        for job_id, job in all_jobs.items():
+            if job.get("user_email") == user_email:
+                user_jobs.append({
+                    "id": job_id,
+                    "job_title": job.get("job_title"),
+                    "location": job.get("location"),
+                    "status": job.get("status"),
+                    "schedule_type": job.get("schedule_type"),
+                    "created_at": job.get("created_at"),
+                    "next_run": job.get("next_run"),
+                    "last_run": job.get("last_run"),
+                    "runs_completed": job.get("runs_completed", 0),
+                    "max_applications_per_run": job.get("max_applications_per_run"),
+                    "last_result": job.get("last_result")
+                })
+        
+        return JSONResponse(content={
+            "success": True,
+            "data": user_jobs
+        })
+        
+    except Exception as e:
+        return JSONResponse(
+            content={"success": False, "error": str(e)},
+            status_code=500
+        )
