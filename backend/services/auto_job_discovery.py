@@ -19,40 +19,131 @@ class AutoJobDiscoveryService:
         self.scheduler = AsyncIOScheduler()
         self.is_running = False
         
-        # Job search configurations
-        self.job_searches = [
-            {"title": "Frontend Developer", "location": "remote"},
-            {"title": "Full Stack Developer", "location": "remote"},
-            {"title": "React Developer", "location": "remote"},
-            {"title": "JavaScript Developer", "location": "remote"},
-            {"title": "Python Developer", "location": "remote"},
-            {"title": "Node.js Developer", "location": "remote"},
-            {"title": "Software Engineer", "location": "remote"},
-            {"title": "Web Developer", "location": "remote"},
-            {"title": "Backend Developer", "location": "remote"},
-            {"title": "TypeScript Developer", "location": "remote"}
+        # Dynamic tech-related job titles for comprehensive discovery
+        self.dynamic_job_searches = [
+            # Frontend Technologies
+            "Frontend Developer", "React Developer", "Vue.js Developer", "Angular Developer",
+            "JavaScript Developer", "TypeScript Developer", "HTML/CSS Developer", "UI Developer",
+            "React Native Developer", "Flutter Developer", "Next.js Developer", "Svelte Developer",
+            
+            # Backend Technologies
+            "Backend Developer", "Python Developer", "Node.js Developer", "Java Developer",
+            "C# Developer", "PHP Developer", "Ruby Developer", "Go Developer", "Rust Developer",
+            "Django Developer", "Flask Developer", "Express.js Developer", "Spring Developer",
+            
+            # Full Stack
+            "Full Stack Developer", "MEAN Stack Developer", "MERN Stack Developer", 
+            "LAMP Stack Developer", "JAMstack Developer", "T3 Stack Developer",
+            
+            # Software Engineering
+            "Software Engineer", "Senior Software Engineer", "Junior Software Engineer",
+            "Software Developer", "Application Developer", "Systems Developer",
+            "Platform Engineer", "Solutions Engineer",
+            
+            # Mobile Development
+            "Mobile Developer", "iOS Developer", "Android Developer", "React Native Developer",
+            "Flutter Developer", "Xamarin Developer", "Ionic Developer", "Swift Developer",
+            "Kotlin Developer",
+            
+            # DevOps & Infrastructure
+            "DevOps Engineer", "Site Reliability Engineer", "Platform Engineer", "Cloud Engineer",
+            "Infrastructure Engineer", "Build Engineer", "Release Engineer", "Deployment Engineer",
+            "Docker Engineer", "Kubernetes Engineer", "AWS Engineer", "Azure Engineer", "GCP Engineer",
+            
+            # Data & Analytics
+            "Data Engineer", "Data Scientist", "Machine Learning Engineer", "AI Engineer",
+            "Big Data Engineer", "ETL Developer", "Business Intelligence Developer", "Analytics Engineer",
+            "MLOps Engineer", "Data Architect", "Database Developer",
+            
+            # Security
+            "Security Engineer", "Cybersecurity Engineer", "Application Security Engineer",
+            "Network Security Engineer", "Information Security Engineer", "Penetration Tester",
+            
+            # Quality Assurance
+            "QA Engineer", "Test Engineer", "Automation Engineer", "QA Analyst",
+            "Test Automation Engineer", "Performance Test Engineer", "Manual Tester",
+            
+            # Web Development
+            "Web Developer", "WordPress Developer", "Shopify Developer", "Drupal Developer",
+            "Magento Developer", "Webflow Developer", "CMS Developer",
+            
+            # Game Development
+            "Game Developer", "Unity Developer", "Unreal Engine Developer", "Game Programmer",
+            "Mobile Game Developer", "3D Developer",
+            
+            # Emerging Technologies
+            "Blockchain Developer", "Smart Contract Developer", "Web3 Developer", "DeFi Developer",
+            "NFT Developer", "Cryptocurrency Developer", "Solidity Developer",
+            
+            # Database & Systems
+            "Database Administrator", "Database Developer", "System Administrator", "Network Engineer",
+            "Database Engineer", "SQL Developer", "NoSQL Developer",
+            
+            # Technical Leadership
+            "Technical Lead", "Engineering Manager", "CTO", "VP Engineering", "Principal Engineer",
+            "Staff Engineer", "Senior Staff Engineer", "Architect", "Solutions Architect", "Technical Architect",
+            
+            # Internships and Entry Level
+            "Software Engineering Intern", "Developer Intern", "Tech Intern", "Engineering Intern",
+            "Junior Developer", "Associate Developer", "Entry Level Developer", "Graduate Developer",
+            
+            # Specialized Roles
+            "API Developer", "Microservices Developer", "Integration Developer", "Automation Developer",
+            "Performance Engineer", "Scalability Engineer", "Search Engineer", "Recommendation Engineer",
+            "Computer Vision Engineer", "NLP Engineer", "Robotics Engineer", "Embedded Developer",
+            "Firmware Developer", "Hardware Engineer", "FPGA Developer"
         ]
         
-    async def start_auto_discovery(self, interval_hours: int = 2):
-        """Start the automated job discovery process."""
+        # Major tech locations for comprehensive coverage
+        self.tech_locations = [
+            "remote", "San Francisco, CA", "New York, NY", "Seattle, WA", "Austin, TX",
+            "Boston, MA", "Los Angeles, CA", "Chicago, IL", "Denver, CO", "Atlanta, GA",
+            "Miami, FL", "Phoenix, AZ", "San Diego, CA", "Portland, OR", "Nashville, TN",
+            "Raleigh, NC", "Dallas, TX", "Houston, TX", "Minneapolis, MN", "Salt Lake City, UT",
+            "Orlando, FL", "San Jose, CA", "Palo Alto, CA", "Mountain View, CA", "Redmond, WA",
+            "Bellevue, WA", "Cambridge, MA", "Menlo Park, CA"
+        ]
+        
+        # Job types for filtering
+        self.job_types = ["full-time", "part-time", "contract", "intern", "remote"]
+        
+    async def start_auto_discovery(self, interval_hours: int = 1):
+        """Start the automated job discovery process with continuous operation."""
         if self.is_running:
             logger.info("Auto job discovery is already running")
             return
         
+        # Add job discovery task (runs every hour by default)
         self.scheduler.add_job(
-            self._discover_jobs,
+            self._dynamic_discover_jobs,
             IntervalTrigger(hours=interval_hours),
             id="auto_job_discovery",
+            replace_existing=True
+        )
+        
+        # Add cleanup task (runs every 6 hours)
+        self.scheduler.add_job(
+            self._cleanup_old_jobs,
+            IntervalTrigger(hours=6),
+            id="job_cleanup",
+            replace_existing=True
+        )
+        
+        # Add always-on discovery task (runs every 30 minutes for high-priority searches)
+        self.scheduler.add_job(
+            self._priority_discovery,
+            IntervalTrigger(minutes=30),
+            id="priority_discovery",
             replace_existing=True
         )
         
         self.scheduler.start()
         self.is_running = True
         
-        # Skip initial discovery during startup to prevent hanging
-        # await self._discover_jobs()
-        
-        logger.info(f"Started auto job discovery - running every {interval_hours} hours")
+        logger.info(f"Started continuous auto job discovery:")
+        logger.info(f"  - Full discovery: every {interval_hours} hours")
+        logger.info(f"  - Priority discovery: every 30 minutes")
+        logger.info(f"  - Cleanup: every 6 hours (removes jobs > 72 hours)")
     
     async def stop_auto_discovery(self):
         """Stop the automated job discovery process."""
@@ -62,28 +153,46 @@ class AutoJobDiscoveryService:
         logger.info("Stopped auto job discovery")
     
     async def _discover_jobs(self):
-        """Discover fresh jobs from all configured searches."""
+        """Discover fresh jobs from all configured searches with multiple locations and job types."""
         logger.info("🔍 Starting automated job discovery...")
         
         all_discovered_jobs = []
         
         for search_config in self.job_searches:
             try:
-                logger.info(f"Searching for {search_config['title']} jobs...")
+                title = search_config['title']
+                locations = search_config.get('locations', ['remote'])
+                job_types = search_config.get('job_types', ['full-time'])
                 
-                # Get jobs from all sources
-                jobs = await self.job_scraper.get_jobs(
-                    job_title=search_config['title'],
-                    location=search_config['location']
-                )
+                logger.info(f"Searching for {title} jobs in {len(locations)} locations with {len(job_types)} job types...")
                 
-                # Process and enrich job data
-                enriched_jobs = await self._enrich_job_data(jobs, search_config)
-                all_discovered_jobs.extend(enriched_jobs)
+                # Search across all locations for this job title
+                for location in locations:
+                    try:
+                        # Get jobs from all sources for this location
+                        jobs = await self.job_scraper.get_jobs(
+                            job_title=title,
+                            location=location
+                        )
+                        
+                        # Process and enrich job data
+                        enriched_jobs = await self._enrich_job_data(jobs, {
+                            'title': title,
+                            'location': location,
+                            'job_types': job_types
+                        })
+                        all_discovered_jobs.extend(enriched_jobs)
+                        
+                        logger.info(f"Found {len(enriched_jobs)} jobs for {title} in {location}")
+                        
+                        # Add delay between location searches
+                        await asyncio.sleep(3)
+                        
+                    except Exception as e:
+                        logger.error(f"Error searching {title} in {location}: {str(e)}")
+                        continue
                 
-                logger.info(f"Found {len(enriched_jobs)} recent jobs for {search_config['title']}")
-                
-                # Add delay between searches to avoid rate limiting
+                # Add delay between different job titles
                 await asyncio.sleep(5)
                 
             except Exception as e:
@@ -96,6 +205,164 @@ class AutoJobDiscoveryService:
             logger.info(f"✅ Completed job discovery - found {len(all_discovered_jobs)} total jobs")
         else:
             logger.warning("No new jobs discovered in this cycle")
+    
+    async def _dynamic_discover_jobs(self):
+        """Discover jobs from dynamic tech job titles across all locations."""
+        logger.info("🔍 Starting dynamic job discovery...")
+        
+        all_discovered_jobs = []
+        
+        # Use a rotating subset of job titles to avoid overwhelming the system
+        import random
+        selected_titles = random.sample(self.dynamic_job_searches, min(10, len(self.dynamic_job_searches)))
+        
+        for job_title in selected_titles:
+            try:
+                logger.info(f"Searching for {job_title} across multiple locations...")
+                
+                # Search in top 5 locations (including remote)
+                top_locations = random.sample(self.tech_locations, min(5, len(self.tech_locations)))
+                if "remote" not in top_locations:
+                    top_locations[0] = "remote"  # Always include remote
+                
+                for location in top_locations:
+                    try:
+                        # Get jobs from all sources
+                        jobs = await self.job_scraper.get_jobs(
+                            job_title=job_title,
+                            location=location
+                        )
+                        
+                        # Enrich and filter jobs
+                        enriched_jobs = await self._enrich_job_data(jobs, {
+                            'title': job_title,
+                            'location': location,
+                            'job_types': self.job_types
+                        })
+                        
+                        all_discovered_jobs.extend(enriched_jobs)
+                        logger.info(f"Found {len(enriched_jobs)} jobs for {job_title} in {location}")
+                        
+                        # Small delay between locations
+                        await asyncio.sleep(2)
+                        
+                    except Exception as e:
+                        logger.error(f"Error searching {job_title} in {location}: {str(e)}")
+                        continue
+                
+                # Delay between job titles
+                await asyncio.sleep(3)
+                
+            except Exception as e:
+                logger.error(f"Error discovering jobs for {job_title}: {str(e)}")
+                continue
+        
+        # Store discovered jobs
+        if all_discovered_jobs:
+            await self._store_discovered_jobs(all_discovered_jobs)
+            logger.info(f"✅ Dynamic discovery completed - found {len(all_discovered_jobs)} total jobs")
+        else:
+            logger.warning("No new jobs found in dynamic discovery cycle")
+    
+    async def _priority_discovery(self):
+        """High-frequency discovery for high-demand roles."""
+        logger.info("⚡ Starting priority job discovery...")
+        
+        # High-priority job titles that are searched more frequently
+        priority_titles = [
+            "Software Engineer", "Frontend Developer", "Backend Developer", 
+            "Full Stack Developer", "React Developer", "Python Developer",
+            "DevOps Engineer", "Data Engineer", "Machine Learning Engineer"
+        ]
+        
+        all_discovered_jobs = []
+        
+        for job_title in priority_titles[:3]:  # Rotate through 3 priority titles
+            try:
+                # Focus on remote and top tech hubs
+                priority_locations = ["remote", "San Francisco, CA", "New York, NY", "Seattle, WA"]
+                
+                for location in priority_locations:
+                    try:
+                        jobs = await self.job_scraper.get_jobs(
+                            job_title=job_title,
+                            location=location
+                        )
+                        
+                        enriched_jobs = await self._enrich_job_data(jobs, {
+                            'title': job_title,
+                            'location': location,
+                            'job_types': self.job_types,
+                            'priority': True
+                        })
+                        
+                        all_discovered_jobs.extend(enriched_jobs)
+                        await asyncio.sleep(1)
+                        
+                    except Exception as e:
+                        logger.error(f"Priority search error for {job_title} in {location}: {str(e)}")
+                        continue
+                
+                await asyncio.sleep(2)
+                
+            except Exception as e:
+                logger.error(f"Priority discovery error for {job_title}: {str(e)}")
+                continue
+        
+        if all_discovered_jobs:
+            await self._store_discovered_jobs(all_discovered_jobs)
+            logger.info(f"⚡ Priority discovery completed - found {len(all_discovered_jobs)} jobs")
+    
+    async def _cleanup_old_jobs(self):
+        """Remove jobs older than 72 hours from the database."""
+        logger.info("🧹 Starting automatic job cleanup...")
+        
+        try:
+            # Calculate cutoff date (72 hours ago)
+            cutoff_date = datetime.now() - timedelta(hours=72)
+            
+            # Get all jobs
+            result = await self.firebase_service.get_discovered_jobs()
+            if not result.get('success'):
+                logger.error(f"Failed to get jobs for cleanup: {result.get('error')}")
+                return
+            
+            all_jobs = result.get('data', [])
+            jobs_to_keep = []
+            jobs_to_remove = []
+            
+            for job in all_jobs:
+                try:
+                    job_date_str = job.get('discovered_at', '')
+                    if job_date_str:
+                        # Parse the job discovery date
+                        job_date = datetime.fromisoformat(job_date_str.replace('Z', '+00:00')).replace(tzinfo=None)
+                        
+                        if job_date >= cutoff_date:
+                            jobs_to_keep.append(job)
+                        else:
+                            jobs_to_remove.append(job)
+                    else:
+                        # If no date, keep the job (safety measure)
+                        jobs_to_keep.append(job)
+                        
+                except Exception as e:
+                    logger.error(f"Error processing job date for cleanup: {str(e)}")
+                    # Keep job if there's an error processing it
+                    jobs_to_keep.append(job)
+            
+            # Update database with only recent jobs
+            if jobs_to_remove:
+                cleanup_result = await self.firebase_service.cleanup_old_jobs(jobs_to_keep)
+                if cleanup_result.get('success'):
+                    logger.info(f"🧹 Cleanup completed: removed {len(jobs_to_remove)} old jobs, kept {len(jobs_to_keep)} recent jobs")
+                else:
+                    logger.error(f"Failed to cleanup old jobs: {cleanup_result.get('error')}")
+            else:
+                logger.info("🧹 Cleanup completed: no old jobs to remove")
+                
+        except Exception as e:
+            logger.error(f"Error during job cleanup: {str(e)}")
     
     async def _enrich_job_data(self, jobs: List[Dict], search_config: Dict) -> List[Dict]:
         """Enrich job data with additional information and filtering."""
@@ -142,7 +409,7 @@ class AutoJobDiscoveryService:
     def _extract_company_email(self, text: str) -> Optional[str]:
         """Extract company email from job description."""
         import re
-        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-ZaZ0-9.-]+\.[A-Z|a-z]{2,}\b'
         emails = re.findall(email_pattern, text)
         
         # Filter out common non-company emails
@@ -277,6 +544,57 @@ class AutoJobDiscoveryService:
             
         except Exception as e:
             logger.error(f"Error getting discovery stats: {str(e)}")
+            return {"success": False, "error": str(e)}
+    
+    async def search_custom_job_title(self, job_title: str, locations: List[str] = None, job_types: List[str] = None) -> Dict:
+        """Search for a custom job title specified by the user."""
+        try:
+            logger.info(f"🔍 Custom search for: {job_title}")
+            
+            if not locations:
+                locations = ["remote", "San Francisco, CA", "New York, NY", "Seattle, WA", "Austin, TX"]
+            
+            if not job_types:
+                job_types = ["full-time", "contract", "remote"]
+            
+            all_jobs = []
+            
+            for location in locations:
+                try:
+                    jobs = await self.job_scraper.get_jobs(
+                        job_title=job_title,
+                        location=location
+                    )
+                    
+                    enriched_jobs = await self._enrich_job_data(jobs, {
+                        'title': job_title,
+                        'location': location,
+                        'job_types': job_types,
+                        'custom_search': True
+                    })
+                    
+                    all_jobs.extend(enriched_jobs)
+                    await asyncio.sleep(2)
+                    
+                except Exception as e:
+                    logger.error(f"Error in custom search for {job_title} in {location}: {str(e)}")
+                    continue
+            
+            # Store the custom search results
+            if all_jobs:
+                await self._store_discovered_jobs(all_jobs)
+                logger.info(f"Custom search completed: found {len(all_jobs)} jobs for '{job_title}'")
+            
+            return {
+                "success": True,
+                "data": all_jobs,
+                "total": len(all_jobs),
+                "search_title": job_title,
+                "locations_searched": locations
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in custom job search: {str(e)}")
             return {"success": False, "error": str(e)}
 
 # Global instance

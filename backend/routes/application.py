@@ -894,3 +894,55 @@ async def api_start_job_discovery(request: Request):
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+@router.post("/search-custom-job")
+async def search_custom_job(request: Request):
+    """Search for a custom job title specified by the user"""
+    try:
+        data = await request.json()
+        job_title = data.get("job_title", "").strip()
+        locations = data.get("locations", ["remote"])
+        job_types = data.get("job_types", ["full-time"])
+        
+        if not job_title:
+            return {"success": False, "error": "Job title is required"}
+        
+        result = await auto_job_discovery.search_custom_job_title(
+            job_title=job_title,
+            locations=locations,
+            job_types=job_types
+        )
+        
+        return result
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@router.get("/tech-job-titles")
+async def get_tech_job_titles():
+    """Get list of available tech job titles for autocomplete"""
+    try:
+        return {
+            "success": True,
+            "data": auto_job_discovery.dynamic_job_searches
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@router.get("/discovery-status")
+async def get_discovery_status():
+    """Get detailed status of the auto discovery service"""
+    try:
+        return {
+            "success": True,
+            "data": {
+                "is_running": auto_job_discovery.is_running,
+                "total_job_titles": len(auto_job_discovery.dynamic_job_searches),
+                "total_locations": len(auto_job_discovery.tech_locations),
+                "job_types": auto_job_discovery.job_types,
+                "discovery_frequency": "Every hour + priority every 30 minutes",
+                "cleanup_frequency": "Every 6 hours (removes jobs > 72 hours old)"
+            }
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}

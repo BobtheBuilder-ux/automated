@@ -303,6 +303,47 @@ class FirebaseService:
             
         except Exception as e:
             return {"success": False, "error": str(e)}
+    
+    async def cleanup_old_jobs(self, jobs_to_keep: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Replace all discovered jobs with only the jobs to keep (72-hour cleanup)"""
+        if not self.db:
+            return {"success": False, "error": "Firebase not initialized"}
+        
+        try:
+            # Delete all existing discovered jobs
+            docs = self.db.collection('discovered_jobs').stream()
+            batch = self.db.batch()
+            count = 0
+            
+            for doc in docs:
+                batch.delete(doc.reference)
+                count += 1
+                
+                # Commit batch every 500 operations (Firestore limit)
+                if count % 500 == 0:
+                    batch.commit()
+                    batch = self.db.batch()
+            
+            # Commit remaining deletions
+            if count % 500 != 0:
+                batch.commit()
+            
+            # Re-add only the jobs to keep
+            if jobs_to_keep:
+                batch = self.db.batch()
+                for job in jobs_to_keep:
+                    doc_ref = self.db.collection('discovered_jobs').document()
+                    batch.set(doc_ref, job)
+                
+                batch.commit()
+            
+            return {
+                "success": True, 
+                "message": f"Cleanup completed: kept {len(jobs_to_keep)} recent jobs, removed {count - len(jobs_to_keep)} old jobs"
+            }
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
 # Create a global instance
 firebase_service = FirebaseService()
