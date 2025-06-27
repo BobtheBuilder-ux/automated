@@ -1,16 +1,14 @@
-fastapi==0.104.1
+fastapi==0.95.2
 python-multipart==0.0.6
-pydantic==2.5.0
-uvicorn[standard]==0.24.0
+pydantic==1.10.12
+uvicorn[standard]==0.22.0
 jinja2==3.1.2
-starlette>=0.27.0
-openai>=0.27.8
+starlette==0.27.0
 google-generativeai==0.3.2
-pdfplumber>=0.9.0
-xhtml2pdf>=0.2.11
-redis>=4.6.0
+PyPDF2==3.0.1
+reportlab==4.0.4
 python-dotenv==1.0.0
-aiofiles==24.1.0
+aiofiles==23.2.0
 # Job scraping and automation libraries
 beautifulsoup4==4.12.2
 requests==2.31.0
@@ -23,6 +21,4 @@ firebase-admin==6.2.0
 gunicorn>=21.2.0
 # Email sending
 sendgrid>=6.10.0
-lxml==4.9.3
 html5lib==1.1
-chromedriver-autoinstaller==0.6.2

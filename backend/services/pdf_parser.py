@@ -1,4 +1,4 @@
-import pdfplumber
+import PyPDF2
 import os
 from typing import Dict, Optional
 
@@ -19,8 +19,10 @@ class PDFParser:
         extracted_text = ""
         
         try:
-            with pdfplumber.open(file_path) as pdf:
-                for page in pdf.pages:
+            with open(file_path, 'rb') as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                
+                for page in pdf_reader.pages:
                     text = page.extract_text() or ""
                     extracted_text += text + "\n\n"
                     
@@ -49,3 +51,15 @@ class PDFParser:
             "full_text": cv_text,
             # Add more structured fields as needed
         }
+    
+    async def parse_pdf(self, file_path: str) -> str:
+        """
+        Async wrapper for PDF parsing.
+        
+        Args:
+            file_path: Path to the PDF file
+            
+        Returns:
+            str: Extracted text from the PDF
+        """
+        return self.extract_text_from_pdf(file_path)
