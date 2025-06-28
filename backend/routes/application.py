@@ -28,17 +28,17 @@ templates = Jinja2Templates(directory=str(templates_dir))
 # Initialize services
 file_handler = FileHandler()
 pdf_parser = PDFParser()
-gemini_generator = GeminiGenerator()
+generator = GeminiGenerator()
 pdf_writer = PDFWriter()
-rate_limiter = RateLimiter()
 job_scraper = JobScraper()
 auto_applicator = AutoApplicator()
-job_scheduler = JobApplicationScheduler()
+rate_limiter = RateLimiter()
 
-# Get the global scheduler instance
+# Global scheduler instance - initialize here to avoid circular imports
+scheduler = JobApplicationScheduler()
+
 def get_scheduler():
-    """Get the global scheduler instance from main.py"""
-    from main import scheduler
+    """Get the global scheduler instance"""
     return scheduler
 
 @router.get("/", response_class=HTMLResponse)
@@ -109,7 +109,7 @@ async def submit_application(
             )
         
         # Generate cover letter using Gemini instead of GPT
-        cover_letter_result = await gemini_generator.generate_cover_letter(
+        cover_letter_result = await generator.generate_cover_letter(
             cv_text=cv_text,
             job_title=job_title,
             name=full_name
@@ -123,7 +123,7 @@ async def submit_application(
         
         # Save cover letter as PDF
         cover_letter_text = cover_letter_result["cover_letter"]
-        pdf_success, pdf_path = pdf_writer.generate_cover_letter_pdf(
+        pdf_success, pdf_path, cover_letter_data = pdf_writer.generate_cover_letter_pdf(
             content=cover_letter_text,
             user_name=full_name,
             job_title=job_title
@@ -184,22 +184,38 @@ async def download_file(file_path: str):
     # Clean up the file path - remove any leading path separators
     file_path = file_path.lstrip('/')
     
-    # If the path already includes static/uploads, use it as is
-    # Otherwise, assume it's just the filename and prepend the uploads directory
-    if file_path.startswith("static/uploads/"):
-        # Path already includes static/uploads
-        full_path = os.path.join("backend", file_path)
-    else:
-        # Just filename, add the uploads directory
-        full_path = os.path.join("backend", "static", "uploads", file_path)
+    # Check different possible locations for the file
+    possible_paths = [
+        os.path.join("backend", file_path),
+        os.path.join("backend", "static", "uploads", os.path.basename(file_path)),
+        os.path.join("static", "uploads", os.path.basename(file_path)),
+        file_path
+    ]
+    
+    full_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            full_path = path
+            break
+    
+    if not full_path:
+        # Log the issue if file not found
+        print(f"File not found at any of the following paths:")
+        for path in possible_paths:
+            print(f"- {path}")
+        raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
     
     # Security check to prevent directory traversal
-    backend_static_path = os.path.normpath("backend/static")
-    if not os.path.normpath(full_path).startswith(backend_static_path):
+    allowed_paths = [
+        os.path.normpath("backend/static"),
+        os.path.normpath("static/uploads")
+    ]
+    
+    if not any(os.path.normpath(full_path).startswith(base) for base in allowed_paths):
         raise HTTPException(status_code=403, detail="Access denied")
     
-    if not os.path.exists(full_path):
-        raise HTTPException(status_code=404, detail=f"File not found: {full_path}")
+    # Log the file access attempt
+    print(f"Serving file: {full_path}")
     
     return FileResponse(path=full_path, filename=os.path.basename(full_path))
 
@@ -350,7 +366,7 @@ async def schedule_auto_apply(
                 "request": request, 
                 "message": f"Auto-application job scheduled successfully! Job ID: {job_id}", 
                 "job_id": job_id,
-                "schedule_info": await job_scheduler.get_job_details(job_id)
+                "schedule_info": await scheduler.get_job_details(job_id)
             }
         )
         
@@ -413,7 +429,7 @@ async def get_scheduled_jobs(request: Request, user_id: str):
     Get all scheduled jobs for a user.
     """
     try:
-        jobs = job_scheduler.get_scheduled_jobs(user_id)
+        jobs = scheduler.get_scheduled_jobs(user_id)
         
         return templates.TemplateResponse(
             "scheduled_jobs.html", 
@@ -548,7 +564,7 @@ async def api_submit_application(
             )
         
         # Generate cover letter using Gemini
-        cover_letter_result = await gemini_generator.generate_cover_letter(
+        cover_letter_result = await generator.generate_cover_letter(
             cv_text=cv_text,
             job_title=job_title,
             name=full_name
@@ -562,7 +578,7 @@ async def api_submit_application(
         
         # Save cover letter as PDF
         cover_letter_text = cover_letter_result["cover_letter"]
-        pdf_success, pdf_path = pdf_writer.generate_cover_letter_pdf(
+        pdf_success, pdf_path = pdf_writer.generate_cover_letter_pdf( # type: ignore
             content=cover_letter_text,
             user_name=full_name,
             job_title=job_title
@@ -740,8 +756,8 @@ async def stop_job_discovery():
 @router.get("/discovered-jobs")
 async def get_discovered_jobs(
     limit: int = 50,
-    job_title: str = None,
-    source: str = None
+    job_title: Optional[str] = None,
+    source: Optional[str] = None
 ):
     """Get discovered jobs with optional filtering"""
     try:
@@ -776,8 +792,8 @@ async def trigger_job_discovery():
 @router.get("/api/jobs/discovered")
 async def api_get_discovered_jobs(
     limit: int = 50,
-    job_title: str = None,
-    source: str = None
+    job_title: Optional[str] = None,
+    source: Optional[str] = None
 ):
     """API endpoint to get discovered jobs with optional filtering"""
     try:
@@ -998,6 +1014,286 @@ async def api_get_scheduled_jobs_by_email(user_email: str):
             "data": user_jobs
         })
         
+    except Exception as e:
+        return JSONResponse(
+            content={"success": False, "error": str(e)},
+            status_code=500
+        )
+
+@router.get("/api/cover-letters/{user_name}")
+async def get_cover_letters(user_name: str):
+    """
+    Get cover letters for a specific user.
+    
+    Args:
+        user_name: Name of the user
+    
+    Returns:
+        JSONResponse: List of cover letters for the user
+    """
+    try:
+        # Get cover letters from Firebase
+        result = await firebase_service.get_cover_letters(user_name)
+        
+        if not result.get("success", False):
+            return JSONResponse(
+                content={"success": False, "error": result.get("error", "Unknown error")},
+                status_code=500
+            )
+        
+        # Format data for frontend
+        cover_letters = result.get("data", [])
+        for letter in cover_letters:
+            # Ensure download URL is properly formatted
+            if "filename" in letter and not letter.get("download_url"):
+                letter["download_url"] = f"/download/static/uploads/{letter['filename']}"
+        
+        return JSONResponse(
+            content={"success": True, "data": cover_letters},
+            status_code=200
+        )
+    
+    except Exception as e:
+        return JSONResponse(
+            content={"success": False, "error": str(e)},
+            status_code=500
+        )
+
+@router.get("/api/cover-letters")
+async def get_all_cover_letters():
+    """
+    Get all cover letters stored in the system.
+    
+    Returns:
+        JSONResponse: List of all cover letters
+    """
+    try:
+        # Get all cover letters from Firebase
+        result = await firebase_service.get_cover_letters()
+        
+        if not result.get("success", False):
+            return JSONResponse(
+                content={"success": False, "error": result.get("error", "Unknown error")},
+                status_code=500
+            )
+        
+        # Format data for frontend
+        cover_letters = result.get("data", [])
+        for letter in cover_letters:
+            # Ensure download URL is properly formatted
+            if "filename" in letter and not letter.get("download_url"):
+                letter["download_url"] = f"/download/static/uploads/{letter['filename']}"
+        
+        return JSONResponse(
+            content={"success": True, "data": cover_letters},
+            status_code=200
+        )
+    
+    except Exception as e:
+        return JSONResponse(
+            content={"success": False, "error": str(e)},
+            status_code=500
+        )
+
+@router.post("/start-hourly-auto-apply")
+async def start_hourly_auto_apply(
+    request: Request,
+    background_tasks: BackgroundTasks
+):
+    """
+    Start hourly auto-apply job discovery and application.
+    """
+    try:
+        # Get request data
+        data = await request.json()
+        
+        full_name = data.get("full_name")
+        email = data.get("email")
+        job_title = data.get("job_title")
+        location = data.get("location")
+        max_applications = data.get("max_applications", 3)
+        
+        if not all([full_name, email, job_title, location]):
+            return JSONResponse(
+                content={"success": False, "error": "Missing required fields"},
+                status_code=400
+            )
+        
+        # Check rate limit
+        rate_check = rate_limiter.check_rate_limit(email)
+        if not rate_check["allowed"]:
+            return JSONResponse(
+                content={"success": False, "error": rate_check["message"]},
+                status_code=429
+            )
+        
+        # Generate a unique user ID for this hourly job
+        user_id = str(uuid.uuid4())
+        
+        # Schedule hourly auto-application (recurring every 1 hour = 0.04 days)
+        scheduler = get_scheduler()
+        job_id = await scheduler.schedule_auto_application(
+            user_id=user_id,
+            user_name=full_name,
+            user_email=email,
+            job_title=job_title,
+            location=location,
+            cv_path="",  # Will use default CV or fetch from user profile
+            schedule_type="recurring",
+            max_applications_per_run=max_applications,
+            frequency_days=0.04,  # Run every hour (1/24 of a day)
+            total_runs=24  # Run for 24 hours max
+        )
+        
+        # Save to Firebase for tracking
+        auto_apply_data = {
+            "full_name": full_name,
+            "email": email,
+            "job_title": job_title,
+            "location": location,
+            "status": "hourly_auto_apply_active",
+            "type": "hourly_auto_apply",
+            "schedule_type": "recurring",
+            "max_applications": max_applications,
+            "frequency_days": 0.04,
+            "total_runs": 24,
+            "job_id": job_id,
+            "user_id": user_id,
+            "application_notes": f"Hourly auto-apply for {job_title} in {location}. Max {max_applications} applications per hour."
+        }
+        
+        firebase_result = await firebase_service.create_application(auto_apply_data)
+        if not firebase_result["success"]:
+            print(f"Warning: Failed to save hourly auto-apply to Firebase: {firebase_result.get('error')}")
+        
+        # Increment rate limit counters
+        rate_limiter.increment_counters(email)
+        
+        return JSONResponse(content={
+            "success": True,
+            "message": "Hourly auto-apply started successfully!",
+            "data": {
+                "job_id": job_id,
+                "schedule_info": await scheduler.get_job_details(job_id),
+                "max_applications_per_hour": max_applications
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error starting hourly auto-apply: {str(e)}")
+        return JSONResponse(
+            content={"success": False, "error": f"An error occurred: {str(e)}"},
+            status_code=500
+        )
+
+@router.get("/email-logs")
+async def get_email_logs(
+    limit: int = 100,
+    email_type: Optional[str] = None
+):
+    """
+    Get email activity logs with optional filtering
+    """
+    try:
+        from services.email_tracking_service import email_tracking_service
+        
+        result = await email_tracking_service.get_email_logs(
+            limit=limit,
+            email_type=email_type
+        )
+        
+        if result["success"]:
+            return JSONResponse(content={
+                "success": True,
+                "data": result["data"],
+                "message": f"Retrieved {len(result['data'])} email logs"
+            })
+        else:
+            return JSONResponse(
+                content={"success": False, "error": result["error"]},
+                status_code=500
+            )
+            
+    except Exception as e:
+        return JSONResponse(
+            content={"success": False, "error": str(e)},
+            status_code=500
+        )
+
+@router.get("/email-stats")
+async def get_email_stats():
+    """
+    Get email statistics and metrics
+    """
+    try:
+        from services.email_tracking_service import email_tracking_service
+        
+        result = await email_tracking_service.get_email_stats()
+        
+        if result["success"]:
+            return JSONResponse(content={
+                "success": True,
+                "data": result["data"],
+                "message": "Email statistics retrieved successfully"
+            })
+        else:
+            return JSONResponse(
+                content={"success": False, "error": result["error"]},
+                status_code=500
+            )
+            
+    except Exception as e:
+        return JSONResponse(
+            content={"success": False, "error": str(e)},
+            status_code=500
+        )
+
+@router.post("/send-test-notification")
+async def send_test_notification(request: Request):
+    """
+    Send a test notification email
+    """
+    try:
+        from services.email_tracking_service import email_tracking_service
+        
+        data = await request.json()
+        recipient_email = data.get("email")
+        
+        if not recipient_email:
+            return JSONResponse(
+                content={"success": False, "error": "Email address required"},
+                status_code=400
+            )
+        
+        result = await email_tracking_service.send_notification_email(
+            recipient_email=recipient_email,
+            subject="Test Notification - Job Application System",
+            body="""This is a test notification from your automated job application system.
+
+If you received this email, your notification system is working correctly!
+
+Features available:
+- Automated job discovery and application
+- Email notifications for application status
+- Comprehensive tracking and monitoring
+- Scheduled job management
+
+Best regards,
+The Job Application Team""",
+            email_type="test_notification"
+        )
+        
+        if result["success"]:
+            return JSONResponse(content={
+                "success": True,
+                "message": f"Test notification sent to {recipient_email}"
+            })
+        else:
+            return JSONResponse(
+                content={"success": False, "error": result["error"]},
+                status_code=500
+            )
+            
     except Exception as e:
         return JSONResponse(
             content={"success": False, "error": str(e)},

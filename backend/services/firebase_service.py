@@ -400,6 +400,82 @@ class FirebaseService:
             
         except Exception as e:
             return {"success": False, "error": str(e)}
+    
+    async def store_cover_letter(self, cover_letter_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Store cover letter content and metadata in Firestore
+        
+        Args:
+            cover_letter_data: Dictionary containing cover letter content and metadata
+            
+        Returns:
+            Dict: Success status and message
+        """
+        if not self.db:
+            return {"success": False, "error": "Firebase not initialized"}
+        
+        try:
+            # Add timestamp if not present
+            if "timestamp" not in cover_letter_data:
+                cover_letter_data["timestamp"] = datetime.utcnow()
+                
+            # Store relative file path for easier retrieval
+            if "file_path" in cover_letter_data:
+                # Convert absolute path to relative path for storage
+                file_path = cover_letter_data["file_path"]
+                if "/" in file_path:
+                    file_name = file_path.split("/")[-1]
+                    cover_letter_data["download_path"] = f"static/uploads/{file_name}"
+                
+            # Add document to cover_letters collection
+            doc_ref = self.db.collection('cover_letters').add(cover_letter_data)
+            cover_letter_id = doc_ref[1].id
+            
+            return {
+                "success": True, 
+                "id": cover_letter_id,
+                "message": "Cover letter saved successfully"
+            }
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    async def get_cover_letters(self, user_name: Optional[str] = None) -> Dict[str, Any]:
+        """Get cover letters from Firestore
+        
+        Args:
+            user_name: Optional filter by user name
+            
+        Returns:
+            Dict: Success status and cover letter data
+        """
+        if not self.db:
+            return {"success": False, "error": "Firebase not initialized"}
+        
+        try:
+            query = self.db.collection('cover_letters')
+            
+            # Filter by user name if provided
+            if user_name:
+                query = query.where('user_name', '==', user_name)
+                
+            # Order by timestamp descending
+            query = query.order_by('timestamp', direction=firestore.Query.DESCENDING)
+            
+            cover_letters = []
+            for doc in query.stream():
+                data = doc.to_dict()
+                data['id'] = doc.id
+                
+                # Convert timestamp to ISO format if needed
+                if 'timestamp' in data and data['timestamp'] and hasattr(data['timestamp'], 'isoformat'):
+                    data['timestamp'] = data['timestamp'].isoformat()
+                
+                cover_letters.append(data)
+            
+            return {"success": True, "data": cover_letters}
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
 # Create a global instance
 firebase_service = FirebaseService()

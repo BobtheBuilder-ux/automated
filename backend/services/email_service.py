@@ -499,7 +499,7 @@ Automated Job Application System
         name: str,
         application: Dict,
         status: str,
-        status_message: str = None
+        status_message: str = None # type: ignore
     ) -> Tuple[bool, str]:
         """
         Send an email notification about a status update for a job application.

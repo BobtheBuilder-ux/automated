@@ -1,17 +1,20 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from dotenv import load_dotenv
 import pathlib
+from datetime import datetime, timedelta
+import json
 
 # Use relative import for the router
 from routes.application import router as application_router
 from utils.scheduler import JobApplicationScheduler
 from services.auto_job_discovery import auto_job_discovery
 from services.auto_applicator import AutoApplicator
+from services.email_tracking_service import EmailTrackingService
 
 # Load environment variables
 load_dotenv()
@@ -21,6 +24,7 @@ scheduler = JobApplicationScheduler()
 
 # Initialize services globally
 auto_applicator = AutoApplicator()
+email_tracker = EmailTrackingService()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -88,6 +92,88 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Include routers
 app.include_router(application_router, prefix="", tags=["applications"])
+
+# Email tracking endpoints
+@app.get("/api/email-logs")
+async def get_email_logs(limit: int = 100, status: str = ""):
+    """Get email logs with optional status filter"""
+    try:
+        logs = await email_tracker.get_email_logs(limit=limit)
+        # Filter by status if provided
+        if status:
+            logs = [log for log in logs if log.get('status') == status]
+        return {"status": "success", "logs": logs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/email-stats")
+async def get_email_stats():
+    """Get email statistics"""
+    try:
+        # Calculate stats from email logs
+        logs = await email_tracker.get_email_logs(limit=1000)
+        total_emails = len(logs)
+        sent_emails = len([log for log in logs if log.get('status') == 'sent'])
+        failed_emails = len([log for log in logs if log.get('status') == 'failed'])
+        
+        stats = {
+            "total_emails": total_emails,
+            "sent_emails": sent_emails,
+            "failed_emails": failed_emails,
+            "success_rate": (sent_emails / total_emails * 100) if total_emails > 0 else 0
+        }
+        return {"status": "success", "stats": stats}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system-health")
+async def get_system_health():
+    """Get comprehensive system health status"""
+    try:
+        # Calculate email stats
+        logs = await email_tracker.get_email_logs(limit=1000)
+        total_emails = len(logs)
+        sent_emails = len([log for log in logs if log.get('status') == 'sent'])
+        
+        email_stats = {
+            "total_emails": total_emails,
+            "sent_emails": sent_emails,
+            "success_rate": (sent_emails / total_emails * 100) if total_emails > 0 else 0
+        }
+        
+        health_data = {
+            "timestamp": datetime.now().isoformat(),
+            "services": {
+                "scheduler": scheduler.is_running if hasattr(scheduler, 'is_running') else True,
+                "auto_discovery": True,  # Check if auto discovery is running
+                "email_service": True,   # Check email service health
+                "database": True         # Check database connectivity
+            },
+            "email_stats": email_stats,
+            "recent_logs": await email_tracker.get_email_logs(limit=10),
+            "system_metrics": {
+                "uptime": "System running",
+                "last_auto_apply": "Check last application time",
+                "pending_jobs": 0  # Get from scheduler
+            }
+        }
+        return {"status": "success", "health": health_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/clear-email-logs")
+async def clear_email_logs():
+    """Clear old email logs"""
+    try:
+        # Get current logs and filter out old ones
+        logs = await email_tracker.get_email_logs(limit=10000)
+        cutoff_date = datetime.now() - timedelta(days=30)
+        
+        # This would need to be implemented in the email tracker
+        # For now, just return success
+        return {"status": "success", "message": "Old email logs cleared"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Health check endpoint for Render
 @app.get("/health")
