@@ -317,6 +317,30 @@ async def schedule_auto_apply(
             total_runs=total_runs
         )
         
+        # Save auto-apply submission to Firebase database
+        auto_apply_data = {
+            "full_name": full_name,
+            "email": email,
+            "job_title": job_title,
+            "location": location,
+            "status": "auto_apply_scheduled",
+            "type": "auto_apply",
+            "schedule_type": schedule_type,
+            "max_applications": max_applications,
+            "frequency_days": frequency_days,
+            "total_runs": total_runs,
+            "job_id": job_id,
+            "user_id": user_id,
+            "cvPath": cv_path,
+            "application_notes": f"Auto-apply job scheduled for {job_title} in {location}. Max {max_applications} applications per run."
+        }
+        
+        firebase_result = await firebase_service.create_application(auto_apply_data)
+        if not firebase_result["success"]:
+            print(f"Warning: Failed to save auto-apply submission to Firebase: {firebase_result.get('error')}")
+        else:
+            print(f"✅ Auto-apply submission saved to Firebase with ID: {firebase_result.get('id')}")
+        
         # Increment rate limit counters
         rate_limiter.increment_counters(email)
         
@@ -586,7 +610,7 @@ async def api_submit_application(
     API version of submit_application that returns JSON responses.
     """
     # Check rate limit
-    rate_check = rate_limiter.check_rate_limit(email)
+    rate_check = rate_limiter.check_rate_limiter(email)
     if not rate_check["allowed"]:
         return JSONResponse(
             content={"success": False, "error": rate_check["message"]},
@@ -966,7 +990,7 @@ async def api_schedule_auto_apply(
     API version of auto-apply scheduling that returns JSON responses.
     """
     # Check rate limit
-    rate_check = rate_limiter.check_rate_limit(email)
+    rate_check = rate_limiter.check_rate_limiter(email)
     if not rate_check["allowed"]:
         return JSONResponse(
             content={"success": False, "error": rate_check["message"]},
@@ -1003,8 +1027,29 @@ async def api_schedule_auto_apply(
             total_runs=total_runs
         )
         
-        # Get job details for response
-        job_details = await scheduler.get_job_details(job_id)
+        # Save auto-apply submission to Firebase database
+        auto_apply_data = {
+            "full_name": full_name,
+            "email": email,
+            "job_title": job_title,
+            "location": location,
+            "status": "auto_apply_scheduled",
+            "type": "auto_apply",
+            "schedule_type": schedule_type,
+            "max_applications": max_applications,
+            "frequency_days": frequency_days,
+            "total_runs": total_runs,
+            "job_id": job_id,
+            "user_id": user_id,
+            "cvPath": cv_path,
+            "application_notes": f"Auto-apply job scheduled for {job_title} in {location}. Max {max_applications} applications per run."
+        }
+        
+        firebase_result = await firebase_service.create_application(auto_apply_data)
+        if not firebase_result["success"]:
+            print(f"Warning: Failed to save auto-apply submission to Firebase: {firebase_result.get('error')}")
+        else:
+            print(f"✅ Auto-apply submission saved to Firebase with ID: {firebase_result.get('id')}")
         
         # Increment rate limit counters
         rate_limiter.increment_counters(email)
@@ -1014,7 +1059,7 @@ async def api_schedule_auto_apply(
             "message": f"Auto-application job scheduled successfully!",
             "data": {
                 "job_id": job_id,
-                "schedule_info": job_details,
+                "schedule_info": await scheduler.get_job_details(job_id),
                 "user_id": user_id,
                 "cv_path": cv_path
             }

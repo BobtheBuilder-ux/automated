@@ -113,11 +113,39 @@ class FirebaseService:
                 app_data = doc.to_dict()
                 app_data['id'] = doc.id
                 
-                # Convert timestamps to ISO format
-                if 'createdAt' in app_data:
-                    app_data['createdAt'] = app_data['createdAt'].isoformat()
-                if 'updatedAt' in app_data:
-                    app_data['updatedAt'] = app_data['updatedAt'].isoformat()
+                # Convert timestamps to ISO format - handle different data types
+                if 'createdAt' in app_data and app_data['createdAt']:
+                    if hasattr(app_data['createdAt'], 'isoformat'):
+                        app_data['createdAt'] = app_data['createdAt'].isoformat()
+                    elif isinstance(app_data['createdAt'], str):
+                        # Already a string, keep as is
+                        pass
+                    else:
+                        # Convert to string representation
+                        app_data['createdAt'] = str(app_data['createdAt'])
+                
+                if 'updatedAt' in app_data and app_data['updatedAt']:
+                    if hasattr(app_data['updatedAt'], 'isoformat'):
+                        app_data['updatedAt'] = app_data['updatedAt'].isoformat()
+                    elif isinstance(app_data['updatedAt'], str):
+                        # Already a string, keep as is
+                        pass
+                    else:
+                        # Convert to string representation
+                        app_data['updatedAt'] = str(app_data['updatedAt'])
+                
+                # Handle other timestamp fields that might be present
+                timestamp_fields = ['email_sent_at', 'response_date', 'interview_date']
+                for field in timestamp_fields:
+                    if field in app_data and app_data[field]:
+                        if hasattr(app_data[field], 'isoformat'):
+                            app_data[field] = app_data[field].isoformat()
+                        elif isinstance(app_data[field], str):
+                            # Already a string, keep as is
+                            pass
+                        else:
+                            # Convert to string representation
+                            app_data[field] = str(app_data[field])
                 
                 applications.append(app_data)
             
@@ -204,11 +232,39 @@ class FirebaseService:
                 app_data = doc.to_dict()
                 app_data['id'] = doc.id
                 
-                # Convert timestamps to ISO format
-                if 'createdAt' in app_data:
-                    app_data['createdAt'] = app_data['createdAt'].isoformat()
-                if 'updatedAt' in app_data:
-                    app_data['updatedAt'] = app_data['updatedAt'].isoformat()
+                # Convert timestamps to ISO format - handle different data types
+                if 'createdAt' in app_data and app_data['createdAt']:
+                    if hasattr(app_data['createdAt'], 'isoformat'):
+                        app_data['createdAt'] = app_data['createdAt'].isoformat()
+                    elif isinstance(app_data['createdAt'], str):
+                        # Already a string, keep as is
+                        pass
+                    else:
+                        # Convert to string representation
+                        app_data['createdAt'] = str(app_data['createdAt'])
+                
+                if 'updatedAt' in app_data and app_data['updatedAt']:
+                    if hasattr(app_data['updatedAt'], 'isoformat'):
+                        app_data['updatedAt'] = app_data['updatedAt'].isoformat()
+                    elif isinstance(app_data['updatedAt'], str):
+                        # Already a string, keep as is
+                        pass
+                    else:
+                        # Convert to string representation
+                        app_data['updatedAt'] = str(app_data['updatedAt'])
+                
+                # Handle other timestamp fields that might be present
+                timestamp_fields = ['email_sent_at', 'response_date', 'interview_date']
+                for field in timestamp_fields:
+                    if field in app_data and app_data[field]:
+                        if hasattr(app_data[field], 'isoformat'):
+                            app_data[field] = app_data[field].isoformat()
+                        elif isinstance(app_data[field], str):
+                            # Already a string, keep as is
+                            pass
+                        else:
+                            # Convert to string representation
+                            app_data[field] = str(app_data[field])
                 
                 applications.append(app_data)
             
