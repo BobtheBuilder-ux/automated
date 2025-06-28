@@ -885,7 +885,7 @@ async def api_schedule_auto_apply(
     API version of auto-apply scheduling that returns JSON responses.
     """
     # Check rate limit
-    rate_check = rate_limiter.check_rate_limiter(email)
+    rate_check = rate_limiter.check_rate_limit(email)
     if not rate_check["allowed"]:
         return JSONResponse(
             content={"success": False, "error": rate_check["message"]},

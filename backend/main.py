@@ -66,6 +66,8 @@ app = FastAPI(
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001", 
     "https://automated-frontend.vercel.app",  # Add your frontend domain
     "https://*.vercel.app",  # Allow all Vercel domains
     "https://automated-uayp.onrender.com"  # Your backend domain
@@ -74,11 +76,11 @@ ALLOWED_ORIGINS = [
 # Add CORS middleware with proper configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for now to fix the immediate issue
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
-    allow_headers=["*"],
-    expose_headers=["*"]
+    allow_origins=ALLOWED_ORIGINS,  # Use the specific allowed origins
+    allow_credentials=True,  # Enable credentials
+    allow_methods=["*"],  # Allow all methods
+    allow_headers=["*"],  # Allow all headers
+    expose_headers=["*"]  # Expose all headers
 )
 
 # Mount static files directory
