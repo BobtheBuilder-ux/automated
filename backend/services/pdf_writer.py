@@ -3,7 +3,7 @@ from xhtml2pdf import pisa
 from datetime import datetime
 from typing import Tuple, Optional, Dict, Any
 import asyncio
-import aiofiles  # Add this import for async file operations
+import aiofiles  # For async file operations
 
 # Import the firebase service
 from .firebase_service import firebase_service
@@ -29,14 +29,14 @@ class PDFWriter:
         html = f"""
         <html>
         <head>
-            <style>
+            <style type="text/css">
                 body {{ font-family: Arial, sans-serif; font-size: 12px; line-height: 1.5; }}
                 h1 {{ font-size: 18px; margin-bottom: 15px; }}
                 p {{ margin-bottom: 10px; }}
             </style>
         </head>
         <body>
-            {text.replace('\n', '<br/>')}
+            {text}
         </body>
         </html>
         """
@@ -47,7 +47,7 @@ class PDFWriter:
                 pisa_status = pisa.CreatePDF(html, dest=out_file)
             
             # Return True if success
-            return pisa_status.err == 0 # type: ignore
+            return pisa_status.err == 0
             
         except Exception as e:
             print(f"Error creating PDF: {e}")
@@ -75,12 +75,15 @@ class PDFWriter:
             bool: Success status
         """
         try:
-            # Format cover letter for PDF
+            # Format cover letter for PDF - replace newlines before passing to formatter
             formatted_content = self._format_cover_letter_html(
-                cover_letter_text, applicant_name, job_title, company_name
+                cover_letter_text.replace('\n', '<br/>'), 
+                applicant_name, 
+                job_title, 
+                company_name
             )
             
-            # Create PDF file - Use synchronous method since xhtml2pdf doesn't support async
+            # Create PDF file using synchronous method (xhtml2pdf doesn't support async)
             success = self.text_to_pdf(formatted_content, output_path)
             
             if success:
@@ -130,8 +133,8 @@ class PDFWriter:
             Tuple[bool, Optional[str], Optional[Dict]]: (success, file path if successful, cover letter data)
         """
         try:
-            # Format the cover letter content
-            formatted_content = self._format_cover_letter(content, user_name, job_title)
+            # Format the cover letter content - replace newlines before passing to formatter
+            formatted_content = self._format_cover_letter(content.replace('\n', '<br/>'), user_name, job_title)
             
             # Generate output path
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -166,8 +169,12 @@ class PDFWriter:
             # Save to Firebase database asynchronously
             if success:
                 print(f"✅ Cover letter PDF created successfully at {output_path}")
-                # Start the asyncio task to save to Firebase
-                asyncio.create_task(firebase_service.store_cover_letter(cover_letter_data))
+                # Create asyncio task to save to Firebase
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(firebase_service.store_cover_letter(cover_letter_data))
+                else:
+                    loop.run_until_complete(firebase_service.store_cover_letter(cover_letter_data))
                 return True, output_path, cover_letter_data
             return False, None, None
             
@@ -180,7 +187,7 @@ class PDFWriter:
         Format the cover letter with proper structure.
         
         Args:
-            content: Raw cover letter content
+            content: Raw cover letter content (with <br/> tags)
             user_name: The user's name
             job_title: The job title
             
@@ -211,7 +218,7 @@ class PDFWriter:
         Format the cover letter with proper HTML structure for PDF generation.
         
         Args:
-            content: Raw cover letter content
+            content: Raw cover letter content (with <br/> tags)
             user_name: The user's name
             job_title: The job title
             company_name: The company name
@@ -221,12 +228,17 @@ class PDFWriter:
         """
         today = datetime.now().strftime("%B %d, %Y")
         
-        # Create a well-formatted HTML document for the cover letter - Fix CSS syntax issues
-        html = f"""
+        # Create a well-formatted HTML document for the cover letter with proper CSS
+        html = f"""<!DOCTYPE html>
         <html>
         <head>
-            <style>
-                @page {{ size: letter; margin: 1in; }}
+            <meta charset="UTF-8">
+            <title>Cover Letter: {job_title}</title>
+            <style type="text/css">
+                @page {{
+                    size: letter;
+                    margin: 1in;
+                }}
                 body {{ 
                     font-family: Arial, sans-serif; 
                     font-size: 12pt; 
@@ -265,7 +277,7 @@ class PDFWriter:
             </div>
             
             <div class="content">
-                {content.replace('\n', '<br/>')}
+                {content}
             </div>
             
             <div class="signature">

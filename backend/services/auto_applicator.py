@@ -40,7 +40,7 @@ class AutoApplicator:
         # Performance tuning parameters
         self.max_concurrent_applications = 5  # Process this many applications in parallel
         self.application_timeout = 180  # 3 minutes timeout per application
-        self.email_fallback = True  # Send email applications when direct applications fail
+        self.email_only = True  # Only apply to jobs with email contacts
         
         # Keep-alive configuration
         self.keep_alive_interval = 60  # Send health ping every 60 seconds
@@ -141,14 +141,25 @@ class AutoApplicator:
             print(f"✅ {len(filtered_jobs)} new jobs available to apply!")
             logger.info(f"After filtering, {len(filtered_jobs)} jobs are available to apply")
             
+            # Filter for jobs with email contacts only if email_only is enabled
+            if self.email_only:
+                print(f"📧 Filtering for jobs with email contacts only...")
+                sys.stdout.flush()
+                email_strategy = StrategyFactory.create_email_strategy()
+                filtered_jobs = [job for job in filtered_jobs if 
+                                job.get("contact_email") or 
+                                email_strategy.extract_email_from_job(job)]
+                
+                if not filtered_jobs:
+                    print(f"❌ No jobs found with email contacts")
+                    return False, [], "No jobs found with email contacts"
+                    
+                print(f"✅ Found {len(filtered_jobs)} jobs with email contacts!")
+            
+            logger.info(f"After filtering, {len(filtered_jobs)} jobs are available to apply")
+            
             # Limit applications
             jobs_to_apply = filtered_jobs[:max_applications]
-            
-            # Apply to each job concurrently
-            applications = []
-            
-            print(f"📝 Applying to {len(jobs_to_apply)} jobs in parallel...")
-            sys.stdout.flush()
             
             # Process applications in parallel batches
             tasks = []
@@ -157,9 +168,9 @@ class AutoApplicator:
             print(f"📝 Applying to {len(jobs_to_apply)} jobs in batches of {batch_size}...")
             sys.stdout.flush()
             
-            # Create tasks for each job application
+            # Create tasks for each job application - always use email method
             for job in jobs_to_apply:
-                task = asyncio.create_task(self._apply_to_job_with_timeout(
+                task = asyncio.create_task(self._apply_via_email_with_timeout(
                     job=job,
                     cv_text=cv_text,
                     user_name=user_name,
@@ -175,11 +186,13 @@ class AutoApplicator:
                 batch_results = await asyncio.gather(*batch)
                 results.extend(batch_results)
             
+            applications = []
             for job, (success, cover_letter_path) in zip(jobs_to_apply, results):
                 if success:
                     job["status"] = "applied"
                     job["applied_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     job["cover_letter_path"] = cover_letter_path
+                    job["application_method"] = "email"
                     applications.append(job)
             
             # Save application history
@@ -199,8 +212,8 @@ class AutoApplicator:
                 
             elapsed_time = time.time() - start_time
             print(f"\n🎉 Auto-apply process completed in {elapsed_time:.2f} seconds")
-            print(f"📊 Successfully applied to {len(applications)} jobs")
-            logger.info(f"Auto-apply process completed in {elapsed_time:.2f} seconds with {len(applications)} successful applications")
+            print(f"📊 Successfully applied to {len(applications)} jobs via email")
+            logger.info(f"Auto-apply process completed in {elapsed_time:.2f} seconds with {len(applications)} successful email applications")
             
             # Cancel the keep-alive task as we're done with the application process
             if self.keep_alive_task and not self.keep_alive_task.done():
@@ -225,163 +238,26 @@ class AutoApplicator:
             print(f"❌ Error in job application process: {str(e)}")
             return False, [], f"Error in apply_to_jobs: {str(e)}"
     
-    async def _apply_to_job_with_timeout(self, job, cv_text, user_name, user_email, cv_path):
-        """Apply to a job with a timeout to prevent hanging on problematic applications"""
+    async def _apply_via_email_with_timeout(self, job, cv_text, user_name, user_email, cv_path):
+        """Apply to a job via email with a timeout to prevent hanging"""
         job_title = job.get('title', 'Unknown position')
         company = job.get('company', 'Unknown company')
         
-        print(f"  🔹 Applying to: {job_title} at {company}...")
+        print(f"  🔹 Applying via email to: {job_title} at {company}...")
         sys.stdout.flush()
         
         try:
             return await asyncio.wait_for(
-                self._apply_to_job(job, cv_text, user_name, user_email, cv_path),
+                self._apply_via_email(job, cv_text, user_name, user_email, cv_path),
                 timeout=self.application_timeout
             )
         except asyncio.TimeoutError:
-            logger.warning(f"Application timed out for {job_title} at {company}")
-            print(f"  ⏱️ Application timed out for {job_title} at {company}")
-            
-            # If timeout occurs and email fallback is enabled, send application via email
-            if self.email_fallback:
-                print(f"  📧 Attempting email fallback for {job_title}...")
-                sys.stdout.flush()
-                return await self._apply_via_email(job, cv_text, user_name, user_email, cv_path)
+            logger.warning(f"Email application timed out for {job_title} at {company}")
+            print(f"  ⏱️ Email application timed out for {job_title} at {company}")
             return False, ""
         except Exception as e:
-            logger.error(f"Error applying to job {job_title}: {str(e)}")
-            print(f"  ❌ Error applying to {job_title}: {str(e)}")
-            
-            # If any error occurs and email fallback is enabled, send application via email
-            if self.email_fallback:
-                print(f"  📧 Attempting email fallback for {job_title}...")
-                sys.stdout.flush()
-                return await self._apply_via_email(job, cv_text, user_name, user_email, cv_path)
-            return False, ""
-    
-    async def _apply_to_job(
-        self,
-        job: Dict,
-        cv_text: str,
-        user_name: str,
-        user_email: str,
-        cv_path: str
-    ) -> Tuple[bool, str]:
-        """
-        Apply to a specific job.
-        
-        Args:
-            job: Job details
-            cv_text: CV text content
-            user_name: Name of the applicant
-            user_email: Email of the applicant
-            cv_path: Path to the CV file
-            
-        Returns:
-            Tuple of (success, cover_letter_path)
-        """
-        try:
-            # Get job details
-            job_title = job.get("title", "")
-            company = job.get("company", "")
-            job_description = job.get("description", "")
-            job_source = job.get("source", "")
-            
-            # Generate cover letter
-            print(f"  📝 Generating cover letter for {job_title} at {company}...")
-            sys.stdout.flush()
-            cover_letter_result = await self.generator.generate_cover_letter(
-                job_title=job_title,
-                company_name=company,
-                job_description=job_description,
-                cv_text=cv_text,
-                applicant_name=user_name
-            )
-            
-            if not cover_letter_result or not cover_letter_result.get("success"):
-                logger.error(f"Failed to generate cover letter for {job_title} at {company}")
-                print(f"  ❌ Failed to generate cover letter for {job_title}")
-                return False, ""
-                
-            cover_letter = cover_letter_result.get("cover_letter", "")
-                
-            # Create cover letter PDF
-            print(f"  📄 Creating cover letter PDF...")
-            sys.stdout.flush()
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            cover_letter_filename = f"cover_letter_{user_name.replace(' ', '_')}_{job_title.replace(' ', '_')}_{timestamp}.pdf"
-            cover_letter_path = os.path.join(os.getcwd(), "backend", "static", "uploads", cover_letter_filename)
-            
-            success = await self.pdf_writer.create_cover_letter_pdf(
-                cover_letter_text=cover_letter,
-                output_path=cover_letter_path,
-                applicant_name=user_name,
-                job_title=job_title,
-                company_name=company
-            )
-            
-            if not success:
-                logger.error(f"Failed to create cover letter PDF for {job_title} at {company}")
-                print(f"  ❌ Failed to create cover letter PDF for {job_title}")
-                return False, ""
-            
-            # Try to apply using appropriate strategy for the job source
-            print(f"  🌐 Submitting application via {job_source}...")
-            sys.stdout.flush()
-            
-            # Get appropriate strategy based on job source
-            strategy = StrategyFactory.create_strategy(job_source)
-            
-            # Set up user data
-            user_data = {
-                "name": user_name,
-                "email": user_email
-            }
-            
-            # Apply using the strategy
-            success, message = await strategy.apply_with_timeout(
-                job_data=job,
-                user_data=user_data,
-                cv_path=cv_path,
-                cover_letter_path=cover_letter_path
-            )
-            
-            if success:
-                print(f"  ✅ Application submitted successfully for {job_title}!")
-                logger.info(f"Applied to {job_title} at {company} for {user_name} ({user_email})")
-                
-                # Send confirmation email for this application
-                print(f"  📧 Sending confirmation email...")
-                sys.stdout.flush()
-                await self.email_service.send_application_confirmation(
-                    recipient_email=user_email,
-                    name=user_name,
-                    job_title=job_title,
-                    company=company,
-                    cover_letter_path=cover_letter_path
-                )
-                print(f"  ✅ Confirmation email sent!")
-                
-                return True, cover_letter_path
-            else:
-                logger.warning(f"Failed to apply to {job_title} at {company}: {message}")
-                print(f"  ❌ Direct application failed: {message}")
-                
-                # Try email fallback if direct application failed
-                if self.email_fallback:
-                    print(f"  📧 Attempting email fallback...")
-                    sys.stdout.flush()
-                    return await self._apply_via_email(job, cv_text, user_name, user_email, cv_path, cover_letter_path)
-                
-                return False, ""
-            
-        except Exception as e:
-            logger.error(f"Error in _apply_to_job: {str(e)}")
-            print(f"  ❌ Error in application process: {str(e)}")
-            if self.email_fallback:
-                print(f"  📧 Attempting email fallback due to error...")
-                sys.stdout.flush()
-                return await self._apply_via_email(job, cv_text, user_name, user_email, cv_path)
+            logger.error(f"Error applying via email to job {job_title}: {str(e)}")
+            print(f"  ❌ Error applying via email to {job_title}: {str(e)}")
             return False, ""
     
     async def _apply_via_email(
@@ -394,7 +270,7 @@ class AutoApplicator:
         cover_letter_path: str = None
     ) -> Tuple[bool, str]:
         """
-        Apply to a job via email when direct application fails.
+        Apply to a job via email.
         
         Args:
             job: Job details
@@ -419,9 +295,8 @@ class AutoApplicator:
                 # Use the application strategy's email extraction
                 email_strategy = StrategyFactory.create_email_strategy()
                 company_email = email_strategy.extract_email_from_job(job)
-                print(f"  📧 Using extracted email: {company_email}")
-            
-            # If no company email found, try to find it from URL
+                
+            # If still no email found, try to extract from URL or company name
             if not company_email and job.get("url"):
                 # Extract domain from URL
                 url = job.get("url", "")
@@ -430,13 +305,13 @@ class AutoApplicator:
                 if domain_match:
                     domain = domain_match.group(1)
                     company_email = f"careers@{domain}"
-                    print(f"  📧 Using domain-based email: {company_email}")
             
             # If still no email, use a default format based on company name
             if not company_email:
                 company_name_for_email = company.lower().replace(" ", "").replace(".", "").replace(",", "")
                 company_email = f"careers@{company_name_for_email}.com"
-                print(f"  📧 Using generated email: {company_email}")
+            
+            print(f"  📧 Using email contact: {company_email}")
             
             # Generate cover letter if not provided
             if not cover_letter_path:
@@ -477,14 +352,16 @@ class AutoApplicator:
                     print(f"  ❌ Failed to create cover letter PDF for email application")
                     return False, ""
             
-            # Send application via email
-            print(f"  📧 Sending email application to {company_email}...")
+            # Tailor the email subject and body to the job
+            print(f"  ✉️ Creating personalized email content...")
             sys.stdout.flush()
             email_subject = f"Application for {job_title} position at {company}"
+            
+            # Create a more personalized email body
             email_body = f"""
 Dear Hiring Manager,
 
-Please find attached my CV and cover letter for the {job_title} position at {company}.
+I am writing to express my interest in the {job_title} position at {company}. Please find attached my CV and cover letter for your consideration.
 
 I believe my skills and experience align well with the requirements for this role, and I'm excited about the opportunity to contribute to your team.
 
@@ -496,6 +373,8 @@ Best regards,
             """
             
             # Send email with attachments
+            print(f"  📧 Sending email application to {company_email}...")
+            sys.stdout.flush()
             email_success = await self.email_service.send_job_application(
                 recipient_email=company_email,
                 subject=email_subject,

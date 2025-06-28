@@ -125,6 +125,7 @@ class ApplicationStrategy(ABC):
     def extract_email_from_job(self, job_data: Dict) -> Optional[str]:
         """
         Extract an email address from job description if available.
+        Enhanced version to find more potential email contacts.
         
         Args:
             job_data: Job details including description
@@ -136,24 +137,46 @@ class ApplicationStrategy(ABC):
         if not description:
             return None
             
-        # Look for email patterns
+        # Look for email patterns - more comprehensive pattern
         email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
         emails = re.findall(email_pattern, description)
         
-        if emails:
-            return emails[0]  # Return the first email found
+        # Look for text patterns that often indicate emails
+        contact_pattern = r'(?:contact|email|send|apply)[^.!?]*?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})'
+        contact_matches = re.findall(contact_pattern, description, re.IGNORECASE)
         
-        # If no email found, try to guess based on company domain
-        company_name = job_data.get("company", "").lower().replace(" ", "")
+        # Combine found emails
+        all_emails = list(set(emails + contact_matches))
+        
+        if all_emails:
+            # Prioritize emails with recruiting/career/job/hr related words
+            priority_emails = [email for email in all_emails if any(word in email.lower() 
+                              for word in ["career", "job", "recruit", "hr", "apply", "hiring", "talent", "cv", "resume"])]
+            
+            if priority_emails:
+                return priority_emails[0]
+            return all_emails[0]  # Return the first email found
+        
+        # If no email found, check if URL contains a contact page
+        url = job_data.get("url", "")
+        if url:
+            # Extract domain for potential email construction
+            domain_pattern = r'https?://(?:www\.)?([^/]+)'
+            domain_match = re.search(domain_pattern, url)
+            if domain_match:
+                domain = domain_match.group(1)
+                return f"careers@{domain}"
+        
+        # If still no email found, try to guess based on company domain
+        company_name = job_data.get("company", "").lower()
         if company_name:
-            # Try common email patterns
-            potential_emails = [
-                f"careers@{company_name}.com",
-                f"jobs@{company_name}.com",
-                f"hr@{company_name}.com",
-                f"recruiting@{company_name}.com"
-            ]
-            return potential_emails[0]  # Return the first guess
+            # Remove common words that might interfere with company name
+            company_name = re.sub(r'\b(ltd|inc|llc|corp|company|co|limited)\b', '', company_name, flags=re.IGNORECASE)
+            # Remove punctuation and spaces
+            company_name = re.sub(r'[^\w]', '', company_name)
+            
+            # Return a common recruiting email format
+            return f"careers@{company_name}.com"
             
         return None
 
