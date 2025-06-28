@@ -466,7 +466,7 @@ class JobScraper:
 
     async def search_google_jobs(self, job_title: str, location: str = "remote") -> List[Dict]:
         """
-        Scrape job listings from Google Jobs.
+        Scrape job listings from Google Jobs, specifically targeting "hiring now" positions.
         
         Args:
             job_title: The job title to search for
@@ -475,17 +475,17 @@ class JobScraper:
         Returns:
             List of job posting dictionaries
         """
-        logger.info(f"Searching Google Jobs for {job_title} jobs in {location}")
+        logger.info(f"Searching Google Jobs for {job_title} jobs in {location} with 'hiring now' filter")
         
-        # Format job title for URL
+        # Format job title for URL - include "hiring now" in the search query
         formatted_job = job_title.replace(' ', '+')
         formatted_location = location.replace(' ', '+')
         
         try:
             driver = self._setup_selenium()
             
-            # Navigate to Google Jobs search results
-            url = f"https://www.google.com/search?q={formatted_job}+{formatted_location}+jobs&ibp=htl;jobs"
+            # Navigate to Google Jobs search results with "hiring now" added to query
+            url = f"https://www.google.com/search?q={formatted_job}+{formatted_location}+\"hiring+now\"+jobs&ibp=htl;jobs"
             driver.get(url)
             
             # Wait for job cards to load
@@ -497,7 +497,7 @@ class JobScraper:
             job_cards = driver.find_elements(By.CSS_SELECTOR, "div.PwjeAc")
             
             results = []
-            for i, job in enumerate(job_cards[:10]):  # Limit to 10 results
+            for i, job in enumerate(job_cards[:15]):  # Increased limit to 15 for more "hiring now" results
                 try:
                     # Click on job to load details
                     job.click()
@@ -528,18 +528,42 @@ class JobScraper:
                     except:
                         description = "Click to view full description"
                     
+                    # Try to extract date posted to prioritize recent listings
+                    posted_date = None
+                    try:
+                        date_element = driver.find_element(By.CSS_SELECTOR, "div.KKh3md")
+                        date_text = date_element.text.strip()
+                        posted_date = self._parse_job_date(date_text)
+                    except:
+                        posted_date = None
+                    
+                    # Look for "hiring now" or "urgently hiring" indicators in the description
+                    is_urgent = any(phrase in description.lower() for phrase in 
+                                    ["hiring now", "urgent", "immediate", "start asap", "start immediately"])
+                    
+                    # Try to extract email addresses from job description
+                    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+                    emails = re.findall(email_pattern, description)
+                    contact_email = emails[0] if emails else None
+                    
                     results.append({
                         "source": "Google Jobs",
                         "job_id": job_id,
                         "title": title,
                         "company": company,
                         "description": description,
-                        "url": apply_link
+                        "url": apply_link,
+                        "posted_date": posted_date.isoformat() if posted_date else None,
+                        "is_urgent": is_urgent,
+                        "contact_email": contact_email
                     })
                 except Exception as e:
                     logger.error(f"Error parsing Google Jobs card: {str(e)}")
             
-            logger.info(f"Found {len(results)} jobs on Google Jobs for {job_title}")
+            # Sort results to prioritize urgent jobs first
+            results.sort(key=lambda x: (0 if x.get("is_urgent") else 1))
+            
+            logger.info(f"Found {len(results)} jobs on Google Jobs for {job_title} with 'hiring now' filter")
             return results
             
         except Exception as e:
@@ -769,29 +793,30 @@ class JobScraper:
     
     async def get_jobs(self, job_title: str, location: str = "remote") -> List[Dict]:
         """
-        Get jobs from multiple sources in parallel.
+        Get jobs from multiple sources in parallel with priority for "hiring now" positions.
         
         Args:
             job_title: The job title to search for
             location: Job location, defaults to "remote"
             
         Returns:
-            List of combined job postings
+            List of combined job postings prioritizing actively hiring positions
         """
         start_time = time.time()
         logger.info(f"Searching for {job_title} jobs in {location}")
         
         # Define sources to search with a weighting for quality
+        # Put Google Jobs first since we've enhanced it with "hiring now" keyword
         sources = [
-            (self.search_indeed, 1.0),  # Indeed is reliable, give full weight
-            (self.search_linkedin, 0.9),  # LinkedIn is also good
-            (self.search_glassdoor, 0.8),
-            (self.search_ziprecruiter, 0.8),
-            (self.search_monster, 0.7),
-            (self.search_google_jobs, 0.9),
-            (self.search_simplyhired, 0.7),
-            (self.search_dice, 0.8),
-            (self.search_angellist, 0.7)
+            (self.search_google_jobs, 1.0),  # Google Jobs with "hiring now" - highest priority
+            (self.search_indeed, 0.9),       # Indeed is reliable but doesn't specifically target "hiring now"
+            (self.search_linkedin, 0.8),     
+            (self.search_glassdoor, 0.7),
+            (self.search_ziprecruiter, 0.7),
+            (self.search_monster, 0.6),
+            (self.search_simplyhired, 0.6),
+            (self.search_dice, 0.7),
+            (self.search_angellist, 0.6)
         ]
         
         # Create tasks for all sources to run in parallel
@@ -802,10 +827,25 @@ class JobScraper:
         # Run all search tasks concurrently
         results = await asyncio.gather(*tasks)
         
-        # Combine and deduplicate results with source weighting
+        # Combine and deduplicate results with source weighting and urgency prioritization
         all_jobs = []
         seen_jobs = set()
         
+        # First, process Google Jobs results to prioritize "hiring now" jobs
+        google_jobs_results = next((r for r, f in results if f.__name__ == 'search_google_jobs'), [])
+        
+        # Add urgent jobs first
+        for job in google_jobs_results:
+            if job.get("is_urgent", False):
+                job_key = f"{job.get('company', '')}-{job.get('title', '')}"
+                if job_key not in seen_jobs:
+                    # Boost score for urgent jobs
+                    job["quality_score"] = 1.2  # Higher than any other source
+                    job["hiring_now"] = True
+                    all_jobs.append(job)
+                    seen_jobs.add(job_key)
+        
+        # Then process all remaining jobs from all sources
         for (source_jobs, search_func), (source_func, weight) in zip(results, sources):
             if not source_jobs:
                 continue
@@ -817,11 +857,26 @@ class JobScraper:
                 if job_key not in seen_jobs:
                     # Add a quality score based on source weighting
                     job["quality_score"] = weight
+                    
+                    # Boost score for jobs that mention "hiring now" in description
+                    description = job.get("description", "").lower()
+                    if any(keyword in description for keyword in ["hiring now", "urgently hiring", "immediate start", "immediate opening"]):
+                        job["quality_score"] += 0.2
+                        job["hiring_now"] = True
+                    
+                    # Boost score for jobs with contact email (easier to apply)
+                    if job.get("contact_email"):
+                        job["quality_score"] += 0.1
+                    
                     all_jobs.append(job)
                     seen_jobs.add(job_key)
-                    
-        # Sort by quality score (best sources first) then company name
-        all_jobs.sort(key=lambda x: (-x.get("quality_score", 0), x.get("company", "")))
+        
+        # Sort first by hiring_now flag, then by quality score, then by company name
+        all_jobs.sort(key=lambda x: (
+            0 if x.get("hiring_now") else 1,  # Hiring now jobs first
+            -x.get("quality_score", 0),       # Then by quality score (descending)
+            x.get("company", "")              # Then alphabetically by company
+        ))
         
         elapsed_time = time.time() - start_time
         logger.info(f"Found {len(all_jobs)} unique jobs for {job_title} in {location} in {elapsed_time:.2f} seconds")
