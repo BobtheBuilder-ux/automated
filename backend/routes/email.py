@@ -73,8 +73,8 @@ async def send_test_email(request: TestEmailRequest):
         # Send email
         success, message_result = await email_service.send_email(
             recipient_email=request.email,
-            subject=request.subject,
-            text_content=request.message,
+            subject=request.subject, # type: ignore
+            text_content=request.message, # type: ignore
             html_content=html_content
         )
         

@@ -546,16 +546,48 @@ Status: ${application.status}`;
                     <td className="px-6 py-4">
                       <div>
                         <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                          {application.company_name || 'Unknown Company'}
+                          {application.type === 'auto_apply' || application.status === 'auto_apply_scheduled' ? 
+                            'Auto Apply' : 
+                            (application.job_board || 'Manual')}
                         </div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">
-                          {application.company_email || 'No email provided'}
-                        </div>
-                        {application.job_description && (
-                          <div className="text-xs text-gray-400 dark:text-gray-500 mt-1 max-w-xs truncate">
-                            {application.job_description.substring(0, 100)}...
+                        {application.application_url && (
+                          <a 
+                            href={application.application_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-500 hover:text-blue-700 truncate block max-w-xs"
+                          >
+                            View Job Posting
+                          </a>
+                        )}
+                        {/* Display progress for auto-apply applications */}
+                        {(application.type === 'auto_apply' || application.status === 'auto_apply_scheduled') && (
+                          <div className="mt-1">
+                            {application.max_applications > 0 && (
+                              <div className="flex flex-col gap-1">
+                                <div className="flex justify-between items-center text-xs">
+                                  <span className="text-gray-600 dark:text-gray-400">Progress:</span>
+                                  <span className="font-medium">
+                                    {application.applications_submitted || 0}/{application.max_applications}
+                                  </span>
+                                </div>
+                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                                  <div 
+                                    className="bg-blue-600 h-1.5 rounded-full" 
+                                    style={{ 
+                                      width: `${Math.min(100, Math.max(0, 
+                                        ((application.applications_submitted || 0) / application.max_applications) * 100
+                                      ))}%` 
+                                    }}
+                                  ></div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
+                        <div className="text-xs text-gray-400 dark:text-gray-500">
+                          {new Date(application.createdAt).toLocaleDateString()}
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
@@ -586,7 +618,9 @@ Status: ${application.status}`;
                     <td className="px-6 py-4">
                       <div>
                         <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                          {application.job_board || 'Manual'}
+                          {application.type === 'auto_apply' || application.status === 'auto_apply_scheduled' ? 
+                            'Auto Apply' : 
+                            (application.job_board || 'Manual')}
                         </div>
                         {application.application_url && (
                           <a 
@@ -597,6 +631,31 @@ Status: ${application.status}`;
                           >
                             View Job Posting
                           </a>
+                        )}
+                        {/* Display progress for auto-apply applications */}
+                        {(application.type === 'auto_apply' || application.status === 'auto_apply_scheduled') && (
+                          <div className="mt-1">
+                            {application.max_applications > 0 && (
+                              <div className="flex flex-col gap-1">
+                                <div className="flex justify-between items-center text-xs">
+                                  <span className="text-gray-600 dark:text-gray-400">Progress:</span>
+                                  <span className="font-medium">
+                                    {application.applications_submitted || 0}/{application.max_applications}
+                                  </span>
+                                </div>
+                                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                                  <div 
+                                    className="bg-blue-600 h-1.5 rounded-full" 
+                                    style={{ 
+                                      width: `${Math.min(100, Math.max(0, 
+                                        ((application.applications_submitted || 0) / application.max_applications) * 100
+                                      ))}%` 
+                                    }}
+                                  ></div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         )}
                         <div className="text-xs text-gray-400 dark:text-gray-500">
                           {new Date(application.createdAt).toLocaleDateString()}

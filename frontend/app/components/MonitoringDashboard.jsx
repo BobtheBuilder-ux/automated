@@ -252,30 +252,42 @@ const MonitoringDashboard = () => {
               <p className="text-gray-500 text-center py-8">No email logs available</p>
             ) : (
               <div className="space-y-2">
-                {emailLogs.map((log, index) => (
-                  <div key={index} className="border rounded-lg p-4 hover:bg-gray-50">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Badge className={getStatusBadgeColor(log.status)}>
-                            {log.status || 'Unknown'}
-                          </Badge>
-                          <span className="font-medium">{log.email_type || 'General'}</span>
+                {emailLogs
+                  // Filter out test emails
+                  .filter(log => {
+                    // Skip emails with test domains, test subjects or test types
+                    const isTestEmail = 
+                      (log.email_type === 'test' || 
+                       log.type === 'test' || 
+                       (log.recipient_email && log.recipient_email.includes('test')) ||
+                       (log.subject && log.subject.toLowerCase().includes('test')));
+                    
+                    return !isTestEmail;
+                  })
+                  .map((log, index) => (
+                    <div key={index} className="border rounded-lg p-4 hover:bg-gray-50">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <Badge className={getStatusBadgeColor(log.status)}>
+                              {log.status || 'Unknown'}
+                            </Badge>
+                            <span className="font-medium">{log.email_type || 'General'}</span>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-1">
+                            To: {log.recipient_email || 'N/A'}
+                          </p>
+                          <p className="text-sm font-medium">{log.subject || 'No Subject'}</p>
+                          {log.error && (
+                            <p className="text-sm text-red-600 mt-1">Error: {log.error}</p>
+                          )}
                         </div>
-                        <p className="text-sm text-gray-600 mb-1">
-                          To: {log.recipient_email || 'N/A'}
-                        </p>
-                        <p className="text-sm font-medium">{log.subject || 'No Subject'}</p>
-                        {log.error && (
-                          <p className="text-sm text-red-600 mt-1">Error: {log.error}</p>
-                        )}
-                      </div>
-                      <div className="text-right text-sm text-gray-500">
-                        {formatDate(log.timestamp || log.created_at)}
+                        <div className="text-right text-sm text-gray-500">
+                          {formatDate(log.timestamp || log.created_at)}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             )}
           </div>

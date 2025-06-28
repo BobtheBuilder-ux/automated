@@ -3,7 +3,10 @@ from bs4 import BeautifulSoup
 import time
 import random
 import logging
-from typing import List, Dict, Optional
+import asyncio
+import json
+import os
+from typing import List, Dict, Optional, Tuple, Set
 from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -31,18 +34,84 @@ class JobScraper:
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
         }
         
+        # Initialize cache
+        self.cache_dir = os.path.join("backend", "static", "job_cache")
+        os.makedirs(self.cache_dir, exist_ok=True)
+        
+        # Set up driver pool for parallel scraping
+        self.max_drivers = 3  # Maximum number of concurrent browser instances
+        self.driver_semaphore = asyncio.Semaphore(self.max_drivers)
+        
+        # Default timeouts
+        self.cache_expiry = 3600  # Cache results for 1 hour
+        self.scrape_timeout = 30  # Timeout for individual scraping operations
+        
     def _setup_selenium(self):
         """Set up a headless Chrome browser for Selenium."""
         options = Options()
         options.add_argument('--headless')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--disable-gpu')
+        options.add_argument('--disable-extensions')
+        options.add_argument('--disable-infobars')
+        options.add_argument('--mute-audio')
+        options.add_argument('--disable-notifications')
+        options.page_load_strategy = 'eager'  # Don't wait for all resources to load
         
         # Set up Chrome driver
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
+        driver.set_page_load_timeout(15)  # Reduce page load timeout to avoid hanging
         return driver
     
+    def _get_cache_key(self, source: str, job_title: str, location: str) -> str:
+        """Generate a cache key for a job search."""
+        return f"{source}_{job_title.lower().replace(' ', '_')}_{location.lower().replace(' ', '_')}.json"
+    
+    async def _get_cached_jobs(self, source: str, job_title: str, location: str) -> Tuple[bool, List[Dict]]:
+        """
+        Get cached job results if available and not expired.
+        
+        Returns:
+            Tuple of (cache_hit, job_list)
+        """
+        cache_key = self._get_cache_key(source, job_title, location)
+        cache_path = os.path.join(self.cache_dir, cache_key)
+        
+        # Check if cache exists and is not expired
+        if os.path.exists(cache_path):
+            try:
+                cache_time = os.path.getmtime(cache_path)
+                current_time = time.time()
+                
+                # If cache is fresh (less than cache_expiry seconds old)
+                if current_time - cache_time < self.cache_expiry:
+                    async with open(cache_path, 'r') as f:
+                        jobs = json.loads(await f.read())
+                    logger.info(f"Using cached results for {source} {job_title} in {location}")
+                    return True, jobs
+            except Exception as e:
+                logger.error(f"Error reading cache for {source}: {str(e)}")
+        
+        return False, []
+    
+    async def _save_to_cache(self, source: str, job_title: str, location: str, jobs: List[Dict]) -> None:
+        """Save job results to cache."""
+        if not jobs:
+            return
+            
+        try:
+            cache_key = self._get_cache_key(source, job_title, location)
+            cache_path = os.path.join(self.cache_dir, cache_key)
+            
+            async with open(cache_path, 'w') as f:
+                await f.write(json.dumps(jobs))
+                
+            logger.info(f"Cached {len(jobs)} jobs from {source} for {job_title} in {location}")
+        except Exception as e:
+            logger.error(f"Error saving cache for {source}: {str(e)}")
+
     async def search_indeed(self, job_title: str, location: str = "remote") -> List[Dict]:
         """
         Scrape job listings from Indeed, filtering for jobs posted within 48 hours.
@@ -700,7 +769,7 @@ class JobScraper:
     
     async def get_jobs(self, job_title: str, location: str = "remote") -> List[Dict]:
         """
-        Get jobs from multiple sources.
+        Get jobs from multiple sources in parallel.
         
         Args:
             job_title: The job title to search for
@@ -709,41 +778,84 @@ class JobScraper:
         Returns:
             List of combined job postings
         """
-        all_jobs = []
+        start_time = time.time()
+        logger.info(f"Searching for {job_title} jobs in {location}")
+        
+        # Define sources to search with a weighting for quality
         sources = [
-            self.search_indeed,
-            self.search_linkedin,
-            self.search_glassdoor,
-            self.search_ziprecruiter,
-            self.search_monster,
-            self.search_google_jobs,
-            # New sources added
-            self.search_simplyhired,
-            self.search_dice,
-            self.search_angellist
+            (self.search_indeed, 1.0),  # Indeed is reliable, give full weight
+            (self.search_linkedin, 0.9),  # LinkedIn is also good
+            (self.search_glassdoor, 0.8),
+            (self.search_ziprecruiter, 0.8),
+            (self.search_monster, 0.7),
+            (self.search_google_jobs, 0.9),
+            (self.search_simplyhired, 0.7),
+            (self.search_dice, 0.8),
+            (self.search_angellist, 0.7)
         ]
         
-        for search_func in sources:
-            try:
-                # Get jobs from this source
-                source_jobs = await search_func(job_title, location)
-                all_jobs.extend(source_jobs)
-                
-                # Add delay to avoid rate limiting
-                time.sleep(random.uniform(1, 3))
-                
-            except Exception as e:
-                logger.error(f"Error in {search_func.__name__}: {str(e)}")
+        # Create tasks for all sources to run in parallel
+        tasks = []
+        for search_func, _ in sources:
+            tasks.append(self._search_with_timeout(search_func, job_title, location))
+        
+        # Run all search tasks concurrently
+        results = await asyncio.gather(*tasks)
+        
+        # Combine and deduplicate results with source weighting
+        all_jobs = []
+        seen_jobs = set()
+        
+        for (source_jobs, search_func), (source_func, weight) in zip(results, sources):
+            if not source_jobs:
                 continue
+                
+            for job in source_jobs:
+                # Create a unique identifier for deduplication
+                job_key = f"{job.get('company', '')}-{job.get('title', '')}"
+                
+                if job_key not in seen_jobs:
+                    # Add a quality score based on source weighting
+                    job["quality_score"] = weight
+                    all_jobs.append(job)
+                    seen_jobs.add(job_key)
+                    
+        # Sort by quality score (best sources first) then company name
+        all_jobs.sort(key=lambda x: (-x.get("quality_score", 0), x.get("company", "")))
         
-        # Sort by company name for consistency
-        all_jobs.sort(key=lambda x: x.get("company", ""))
-        
-        # Log the total number of jobs found
-        logger.info(f"Found a total of {len(all_jobs)} jobs for {job_title} in {location}")
+        elapsed_time = time.time() - start_time
+        logger.info(f"Found {len(all_jobs)} unique jobs for {job_title} in {location} in {elapsed_time:.2f} seconds")
         
         return all_jobs
-
+        
+    async def _search_with_timeout(self, search_func, job_title: str, location: str):
+        """Run a search function with timeout and caching."""
+        source_name = search_func.__name__.replace("search_", "")
+        
+        try:
+            # Check cache first
+            cache_hit, cached_jobs = await self._get_cached_jobs(source_name, job_title, location)
+            if cache_hit:
+                return cached_jobs, search_func
+            
+            # Run the search with a timeout
+            source_jobs = await asyncio.wait_for(
+                search_func(job_title, location),
+                timeout=self.scrape_timeout
+            )
+            
+            # Cache the results
+            await self._save_to_cache(source_name, job_title, location, source_jobs)
+            
+            return source_jobs, search_func
+            
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout while searching {source_name} for {job_title}")
+            return [], search_func
+        except Exception as e:
+            logger.error(f"Error in {source_name} search: {str(e)}")
+            return [], search_func
+            
     async def get_job_description(self, job_url: str) -> Optional[str]:
         """
         Get the full job description from a job listing URL.

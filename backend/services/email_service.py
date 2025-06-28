@@ -655,3 +655,71 @@ Automated Job Application System
             text_content=text_content,
             html_content=html_content
         )
+    
+    async def send_job_application(
+        self,
+        recipient_email: str,
+        subject: str,
+        body: str,
+        sender_name: str,
+        sender_email: str,
+        attachments: Optional[List[str]] = None
+    ) -> bool:
+        """
+        Send a job application via email.
+        
+        Args:
+            recipient_email: Email address of the recipient (company)
+            subject: Email subject
+            body: Email body
+            sender_name: Name of the job applicant
+            sender_email: Email address of the job applicant for replies
+            attachments: List of file paths to attach (CV, cover letter, etc.)
+            
+        Returns:
+            Success flag
+        """
+        try:
+            # Create message with Reply-To header set to the applicant's email
+            message = MIMEMultipart("alternative")
+            message["Subject"] = subject
+            message["From"] = f"{sender_name} <{self.sender_email}>"
+            message["To"] = recipient_email
+            message["Reply-To"] = sender_email
+            
+            # Set text content
+            message.attach(MIMEText(body, "plain"))
+            
+            # Add attachments if provided
+            if attachments:
+                for attachment_path in attachments:
+                    if not os.path.exists(attachment_path):
+                        logger.warning(f"Attachment not found: {attachment_path}")
+                        continue
+                        
+                    with open(attachment_path, "rb") as file:
+                        attachment = MIMEApplication(file.read())
+                        attachment_name = Path(attachment_path).name
+                        attachment.add_header(
+                            "Content-Disposition", 
+                            f"attachment; filename={attachment_name}"
+                        )
+                        message.attach(attachment)
+            
+            # Create a secure SSL context
+            context = ssl.create_default_context()
+            
+            # Connect to server and send email
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.ehlo()  # Can be omitted
+                server.starttls(context=context)
+                server.ehlo()  # Can be omitted
+                server.login(self.sender_email, self.sender_password)
+                server.sendmail(self.sender_email, recipient_email, message.as_string())
+            
+            logger.info(f"Job application sent successfully via email to {recipient_email}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error sending job application via email to {recipient_email}: {str(e)}")
+            return False

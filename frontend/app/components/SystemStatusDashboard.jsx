@@ -222,22 +222,35 @@ export default function SystemStatusDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2 max-h-64 overflow-y-auto">
-              {systemHealth.recent_logs.map((log, index) => (
-                <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex-1">
-                    <div className="font-medium">{log.recipient || 'Unknown recipient'}</div>
-                    <div className="text-sm text-gray-600">{log.subject || 'No subject'}</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={log.status === 'sent' ? 'default' : 'destructive'}>
-                      {log.status}
-                    </Badge>
-                    <div className="text-sm text-gray-500">
-                      {new Date(log.timestamp).toLocaleTimeString()}
+              {systemHealth.recent_logs
+                // Filter out demo and test emails
+                .filter(log => {
+                  // Check if it's a test email (either in type or recipient)
+                  const isTestEmail = 
+                    (log.email_type === 'test' || 
+                     log.type === 'test' ||
+                     (log.recipient && log.recipient.includes('test')) ||
+                     (log.subject && log.subject.toLowerCase().includes('test')));
+                  
+                  // Only show real application emails
+                  return !isTestEmail;
+                })
+                .map((log, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex-1">
+                      <div className="font-medium">{log.recipient || 'Unknown recipient'}</div>
+                      <div className="text-sm text-gray-600">{log.subject || 'No subject'}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={log.status === 'sent' ? 'default' : 'destructive'}>
+                        {log.status}
+                      </Badge>
+                      <div className="text-sm text-gray-500">
+                        {new Date(log.timestamp).toLocaleTimeString()}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
               {systemHealth.recent_logs.length === 0 && (
                 <div className="text-center text-gray-500 py-4">
                   No recent email activity
