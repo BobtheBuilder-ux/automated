@@ -460,107 +460,10 @@ async def get_applications():
         if result["success"]:
             return result
         else:
-            # Fallback to mock data if Firebase is not available
-            mock_applications = [
-                {
-                    "id": "1",
-                    "full_name": "Miracle Ezechukwu",
-                    "email": "miracle@example.com",
-                    "job_title": "Frontend Developer",
-                    "status": "completed",
-                    "createdAt": "2025-06-27T15:29:00Z",
-                    "coverLetterPath": "static/uploads/cover_letter_Miracle_Ezechukwu_Frontend_developer_20250627152927.pdf",
-                    "cvPath": "static/uploads/cv_Miracle_Ezechukwu_20250627152923_41e780ac.pdf",
-                    "company_name": "TechCorp Solutions",
-                    "company_email": "hr@techcorp.com",
-                    "job_description": "We are seeking a talented Frontend Developer to join our dynamic team. The ideal candidate will have experience with React, JavaScript, and modern web technologies. You'll be responsible for creating responsive user interfaces and collaborating with our design and backend teams.",
-                    "job_board": "LinkedIn",
-                    "application_url": "https://linkedin.com/jobs/frontend-developer-123456",
-                    "email_sent": True,
-                    "email_sent_to": "hr@techcorp.com",
-                    "email_subject": "Application for Frontend Developer Position - Miracle Ezechukwu",
-                    "email_body": "Dear Hiring Manager at TechCorp Solutions,\n\nI hope this email finds you well. I am writing to express my strong interest in the Frontend Developer position at TechCorp Solutions...",
-                    "email_sent_at": "2025-06-27T15:30:00Z",
-                    "response_received": False,
-                    "application_notes": "Applied through LinkedIn. Strong match for React skills."
-                },
-                {
-                    "id": "2",
-                    "full_name": "Miracle Ezechukwu",
-                    "email": "miracle@example.com",
-                    "job_title": "Full Stack Developer",
-                    "status": "completed",
-                    "createdAt": "2025-06-26T14:20:00Z",
-                    "coverLetterPath": "static/uploads/cover_letter_Miracle_Ezechukwu_Full_Stack_developer_20250626142000.pdf",
-                    "cvPath": "static/uploads/cv_Miracle_Ezechukwu_20250626142000_41e780ac.pdf",
-                    "company_name": "InnovateLabs Inc",
-                    "company_email": "careers@innovatelabs.com",
-                    "job_description": "Looking for a Full Stack Developer with expertise in Node.js, React, and database management. The role involves building scalable web applications and working closely with product managers to deliver high-quality software solutions.",
-                    "job_board": "Indeed",
-                    "application_url": "https://indeed.com/jobs/full-stack-developer-789012",
-                    "email_sent": True,
-                    "email_sent_to": "careers@innovatelabs.com",
-                    "email_subject": "Application for Full Stack Developer Position - Miracle Ezechukwu",
-                    "email_body": "Dear Hiring Manager at InnovateLabs Inc,\n\nI am excited to apply for the Full Stack Developer position...",
-                    "email_sent_at": "2025-06-26T14:25:00Z",
-                    "response_received": True,
-                    "response_date": "2025-06-27T09:15:00Z",
-                    "interview_scheduled": True,
-                    "interview_date": "2025-06-30T10:00:00Z",
-                    "application_notes": "Received positive response! Interview scheduled for Monday."
-                },
-                {
-                    "id": "3",
-                    "full_name": "Miracle Ezechukwu",
-                    "email": "miracle@example.com",
-                    "job_title": "React Developer",
-                    "status": "completed",
-                    "createdAt": "2025-06-25T11:45:00Z",
-                    "coverLetterPath": "static/uploads/cover_letter_Miracle_Ezechukwu_React_developer_20250625114500.pdf",
-                    "cvPath": "static/uploads/cv_Miracle_Ezechukwu_20250625114500_41e780ac.pdf",
-                    "company_name": "StartupXYZ",
-                    "company_email": "hello@startupxyz.com",
-                    "job_description": "Early-stage startup seeking a React Developer to build our customer-facing platform. Must have experience with React, TypeScript, and state management. Equity compensation available.",
-                    "job_board": "AngelList",
-                    "application_url": "https://angel.co/company/startupxyz/jobs/react-developer",
-                    "email_sent": True,
-                    "email_sent_to": "hello@startupxyz.com",
-                    "email_subject": "Application for React Developer Position - Miracle Ezechukwu",
-                    "email_body": "Dear Startup Team,\n\nI'm thrilled to apply for the React Developer position at StartupXYZ...",
-                    "email_sent_at": "2025-06-25T11:50:00Z",
-                    "response_received": False,
-                    "application_notes": "Startup environment, potential for equity. No response yet."
-                }
-            ]
-            return {"success": True, "data": mock_applications}
+            return {"success": False, "error": "Failed to fetch applications from database", "data": []}
     except Exception as e:
         print(f"Error in get_applications: {e}")
-        # Return mock data as fallback
-        mock_applications = [
-            {
-                "id": "1",
-                "full_name": "Miracle Ezechukwu",
-                "email": "miracle@example.com",
-                "job_title": "Frontend Developer",
-                "status": "completed",
-                "createdAt": "2025-06-27T15:29:00Z",
-                "coverLetterPath": "static/uploads/cover_letter_Miracle_Ezechukwu_Frontend_developer_20250627152927.pdf",
-                "cvPath": "static/uploads/cv_Miracle_Ezechukwu_20250627152923_41e780ac.pdf",
-                "company_name": "TechCorp Solutions",
-                "company_email": "hr@techcorp.com",
-                "job_description": "We are seeking a talented Frontend Developer to join our dynamic team. The ideal candidate will have experience with React, JavaScript, and modern web technologies.",
-                "job_board": "LinkedIn",
-                "application_url": "https://linkedin.com/jobs/frontend-developer-123456",
-                "email_sent": True,
-                "email_sent_to": "hr@techcorp.com",
-                "email_subject": "Application for Frontend Developer Position - Miracle Ezechukwu",
-                "email_body": "Dear Hiring Manager at TechCorp Solutions...",
-                "email_sent_at": "2025-06-27T15:30:00Z",
-                "response_received": False,
-                "application_notes": "Applied through LinkedIn. Strong match for React skills."
-            }
-        ]
-        return {"success": True, "data": mock_applications}
+        return {"success": False, "error": f"An error occurred: {str(e)}", "data": []}
 
 @router.get("/applications/stats")
 async def get_application_stats():
@@ -572,17 +475,9 @@ async def get_application_stats():
         if result["success"]:
             return result
         else:
-            # Fallback to mock data if Firebase is not available
-            stats = {
-                "totalApplications": 1,
-                "completedApplications": 1,
-                "pendingApplications": 0,
-                "failedApplications": 0,
-                "successRate": 100
-            }
-            return {"success": True, "data": stats}
+            return {"success": False, "error": "Failed to fetch application stats from database", "data": {}}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": f"An error occurred: {str(e)}", "data": {}}
 
 @router.delete("/applications/{application_id}")
 async def delete_application(application_id: str):
