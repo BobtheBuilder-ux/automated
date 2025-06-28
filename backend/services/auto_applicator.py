@@ -13,6 +13,7 @@ from .pdf_parser import PDFParser
 from .gemini_generator import GeminiGenerator
 from .pdf_writer import PDFWriter
 from .email_service import EmailService
+from .application_strategies import StrategyFactory
 
 # Configure logging
 logging.basicConfig(
@@ -21,6 +22,9 @@ logging.basicConfig(
     filename='auto_application.log'
 )
 logger = logging.getLogger(__name__)
+
+# Set up console output for real-time feedback
+import sys
 
 class AutoApplicator:
     """Service to automatically apply to jobs based on scraped listings."""
@@ -66,27 +70,42 @@ class AutoApplicator:
         """
         try:
             start_time = time.time()
+            print(f"\n🚀 Starting auto-apply process for {user_name} ({user_email})")
+            print(f"📋 Looking for {job_title} jobs in {location}...")
             logger.info(f"Starting auto-apply process for {user_name} ({user_email}) - {job_title} in {location}")
             
             # Get job listings
+            print(f"🔍 Scraping job listings from multiple sources...")
+            sys.stdout.flush()
             jobs = await self.job_scraper.get_jobs(job_title, location)
             
             if not jobs:
+                print(f"❌ No jobs found for '{job_title}' in '{location}'")
                 return False, [], f"No jobs found for '{job_title}' in '{location}'"
                 
+            print(f"✅ Found {len(jobs)} matching jobs!")
+            
             # Parse CV
+            print(f"📄 Parsing your CV...")
+            sys.stdout.flush()
             cv_text = await self.pdf_parser.parse_pdf(cv_path)
             if not cv_text:
+                print(f"❌ Failed to parse CV")
                 return False, [], "Failed to parse CV"
             
+            print(f"✅ CV parsed successfully!")
             logger.info(f"Found {len(jobs)} jobs and parsed CV successfully")
             
             # Filter jobs to avoid duplicates
+            print(f"🔄 Filtering out jobs you've already applied to...")
+            sys.stdout.flush()
             filtered_jobs = await self._filter_jobs(jobs, user_email)
             
             if not filtered_jobs:
+                print(f"ℹ️ No new jobs found that haven't been applied to already")
                 return False, [], "No new jobs found that haven't been applied to already"
                 
+            print(f"✅ {len(filtered_jobs)} new jobs available to apply!")
             logger.info(f"After filtering, {len(filtered_jobs)} jobs are available to apply")
             
             # Limit applications
@@ -94,6 +113,9 @@ class AutoApplicator:
             
             # Apply to each job concurrently
             applications = []
+            
+            print(f"📝 Applying to {len(jobs_to_apply)} jobs in parallel...")
+            sys.stdout.flush()
             
             # Process applications in parallel batches
             tasks = []
@@ -122,41 +144,59 @@ class AutoApplicator:
             
             # If applications were made, send a summary email
             if applications:
+                print(f"📧 Sending application summary email to {user_email}...")
+                sys.stdout.flush()
                 await self.email_service.send_application_summary(
                     recipient_email=user_email,
                     name=user_name,
                     applications=applications,
                     job_title=job_title
                 )
+                print(f"✅ Summary email sent!")
                 
             elapsed_time = time.time() - start_time
+            print(f"\n🎉 Auto-apply process completed in {elapsed_time:.2f} seconds")
+            print(f"📊 Successfully applied to {len(applications)} jobs")
             logger.info(f"Auto-apply process completed in {elapsed_time:.2f} seconds with {len(applications)} successful applications")
             
             return True, applications, f"Successfully applied to {len(applications)} jobs"
             
         except Exception as e:
             logger.error(f"Error in apply_to_jobs: {str(e)}")
+            print(f"❌ Error in job application process: {str(e)}")
             return False, [], f"Error in apply_to_jobs: {str(e)}"
     
     async def _apply_to_job_with_timeout(self, job, cv_text, user_name, user_email, cv_path):
         """Apply to a job with a timeout to prevent hanging on problematic applications"""
+        job_title = job.get('title', 'Unknown position')
+        company = job.get('company', 'Unknown company')
+        
+        print(f"  🔹 Applying to: {job_title} at {company}...")
+        sys.stdout.flush()
+        
         try:
             return await asyncio.wait_for(
                 self._apply_to_job(job, cv_text, user_name, user_email, cv_path),
                 timeout=self.application_timeout
             )
         except asyncio.TimeoutError:
-            logger.warning(f"Application timed out for {job.get('title')} at {job.get('company')}")
+            logger.warning(f"Application timed out for {job_title} at {company}")
+            print(f"  ⏱️ Application timed out for {job_title} at {company}")
             
             # If timeout occurs and email fallback is enabled, send application via email
             if self.email_fallback:
+                print(f"  📧 Attempting email fallback for {job_title}...")
+                sys.stdout.flush()
                 return await self._apply_via_email(job, cv_text, user_name, user_email, cv_path)
             return False, ""
         except Exception as e:
-            logger.error(f"Error applying to job {job.get('title')}: {str(e)}")
+            logger.error(f"Error applying to job {job_title}: {str(e)}")
+            print(f"  ❌ Error applying to {job_title}: {str(e)}")
             
             # If any error occurs and email fallback is enabled, send application via email
             if self.email_fallback:
+                print(f"  📧 Attempting email fallback for {job_title}...")
+                sys.stdout.flush()
                 return await self._apply_via_email(job, cv_text, user_name, user_email, cv_path)
             return False, ""
     
@@ -186,9 +226,12 @@ class AutoApplicator:
             job_title = job.get("title", "")
             company = job.get("company", "")
             job_description = job.get("description", "")
+            job_source = job.get("source", "")
             
             # Generate cover letter
-            cover_letter = await self.generator.generate_cover_letter(
+            print(f"  📝 Generating cover letter for {job_title} at {company}...")
+            sys.stdout.flush()
+            cover_letter_result = await self.generator.generate_cover_letter(
                 job_title=job_title,
                 company_name=company,
                 job_description=job_description,
@@ -196,11 +239,16 @@ class AutoApplicator:
                 applicant_name=user_name
             )
             
-            if not cover_letter:
+            if not cover_letter_result or not cover_letter_result.get("success"):
                 logger.error(f"Failed to generate cover letter for {job_title} at {company}")
+                print(f"  ❌ Failed to generate cover letter for {job_title}")
                 return False, ""
                 
+            cover_letter = cover_letter_result.get("cover_letter", "")
+                
             # Create cover letter PDF
+            print(f"  📄 Creating cover letter PDF...")
+            sys.stdout.flush()
             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
             cover_letter_filename = f"cover_letter_{user_name.replace(' ', '_')}_{job_title.replace(' ', '_')}_{timestamp}.pdf"
             cover_letter_path = os.path.join(os.getcwd(), "backend", "static", "uploads", cover_letter_filename)
@@ -215,26 +263,65 @@ class AutoApplicator:
             
             if not success:
                 logger.error(f"Failed to create cover letter PDF for {job_title} at {company}")
+                print(f"  ❌ Failed to create cover letter PDF for {job_title}")
                 return False, ""
             
-            # In a real application, you would implement the actual job application submission here
-            # For now, we'll just log it and pretend it was successful
-            logger.info(f"Applied to {job_title} at {company} for {user_name} ({user_email})")
+            # Try to apply using appropriate strategy for the job source
+            print(f"  🌐 Submitting application via {job_source}...")
+            sys.stdout.flush()
             
-            # Send confirmation email for this application
-            await self.email_service.send_application_confirmation(
-                recipient_email=user_email,
-                name=user_name,
-                job_title=job_title,
-                company=company,
+            # Get appropriate strategy based on job source
+            strategy = StrategyFactory.create_strategy(job_source)
+            
+            # Set up user data
+            user_data = {
+                "name": user_name,
+                "email": user_email
+            }
+            
+            # Apply using the strategy
+            success, message = await strategy.apply_with_timeout(
+                job_data=job,
+                user_data=user_data,
+                cv_path=cv_path,
                 cover_letter_path=cover_letter_path
             )
             
-            return True, cover_letter_path
+            if success:
+                print(f"  ✅ Application submitted successfully for {job_title}!")
+                logger.info(f"Applied to {job_title} at {company} for {user_name} ({user_email})")
+                
+                # Send confirmation email for this application
+                print(f"  📧 Sending confirmation email...")
+                sys.stdout.flush()
+                await self.email_service.send_application_confirmation(
+                    recipient_email=user_email,
+                    name=user_name,
+                    job_title=job_title,
+                    company=company,
+                    cover_letter_path=cover_letter_path
+                )
+                print(f"  ✅ Confirmation email sent!")
+                
+                return True, cover_letter_path
+            else:
+                logger.warning(f"Failed to apply to {job_title} at {company}: {message}")
+                print(f"  ❌ Direct application failed: {message}")
+                
+                # Try email fallback if direct application failed
+                if self.email_fallback:
+                    print(f"  📧 Attempting email fallback...")
+                    sys.stdout.flush()
+                    return await self._apply_via_email(job, cv_text, user_name, user_email, cv_path, cover_letter_path)
+                
+                return False, ""
             
         except Exception as e:
             logger.error(f"Error in _apply_to_job: {str(e)}")
+            print(f"  ❌ Error in application process: {str(e)}")
             if self.email_fallback:
+                print(f"  📧 Attempting email fallback due to error...")
+                sys.stdout.flush()
                 return await self._apply_via_email(job, cv_text, user_name, user_email, cv_path)
             return False, ""
     
@@ -244,7 +331,8 @@ class AutoApplicator:
         cv_text: str,
         user_name: str,
         user_email: str,
-        cv_path: str
+        cv_path: str,
+        cover_letter_path: str = None
     ) -> Tuple[bool, str]:
         """
         Apply to a job via email when direct application fails.
@@ -255,6 +343,7 @@ class AutoApplicator:
             user_name: Name of the applicant
             user_email: Email of the applicant
             cv_path: Path to the CV file
+            cover_letter_path: Path to existing cover letter if available
             
         Returns:
             Tuple of (success, cover_letter_path)
@@ -263,10 +352,17 @@ class AutoApplicator:
             # Get job details
             job_title = job.get("title", "")
             company = job.get("company", "")
-            company_email = job.get("email")
+            company_email = job.get("contact_email")
             job_description = job.get("description", "")
             
-            # If no company email found, try to find it
+            # Extract email from job if not provided
+            if not company_email:
+                # Use the application strategy's email extraction
+                email_strategy = StrategyFactory.create_email_strategy()
+                company_email = email_strategy.extract_email_from_job(job)
+                print(f"  📧 Using extracted email: {company_email}")
+            
+            # If no company email found, try to find it from URL
             if not company_email and job.get("url"):
                 # Extract domain from URL
                 url = job.get("url", "")
@@ -275,44 +371,57 @@ class AutoApplicator:
                 if domain_match:
                     domain = domain_match.group(1)
                     company_email = f"careers@{domain}"
+                    print(f"  📧 Using domain-based email: {company_email}")
             
             # If still no email, use a default format based on company name
             if not company_email:
                 company_name_for_email = company.lower().replace(" ", "").replace(".", "").replace(",", "")
                 company_email = f"careers@{company_name_for_email}.com"
+                print(f"  📧 Using generated email: {company_email}")
             
-            # Generate cover letter
-            cover_letter = await self.generator.generate_cover_letter(
-                job_title=job_title,
-                company_name=company,
-                job_description=job_description,
-                cv_text=cv_text,
-                applicant_name=user_name
-            )
-            
-            if not cover_letter:
-                logger.error(f"Failed to generate cover letter for {job_title} at {company}")
-                return False, ""
+            # Generate cover letter if not provided
+            if not cover_letter_path:
+                print(f"  📝 Generating cover letter for email application...")
+                sys.stdout.flush()
+                cover_letter_result = await self.generator.generate_cover_letter(
+                    job_title=job_title,
+                    company_name=company,
+                    job_description=job_description,
+                    cv_text=cv_text,
+                    applicant_name=user_name
+                )
                 
-            # Create cover letter PDF
-            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            cover_letter_filename = f"cover_letter_{user_name.replace(' ', '_')}_{job_title.replace(' ', '_')}_{timestamp}.pdf"
-            cover_letter_path = os.path.join(os.getcwd(), "backend", "static", "uploads", cover_letter_filename)
-            
-            success = await self.pdf_writer.create_cover_letter_pdf(
-                cover_letter_text=cover_letter,
-                output_path=cover_letter_path,
-                applicant_name=user_name,
-                job_title=job_title,
-                company_name=company
-            )
-            
-            if not success:
-                logger.error(f"Failed to create cover letter PDF for {job_title} at {company}")
-                return False, ""
+                if not cover_letter_result or not cover_letter_result.get("success"):
+                    logger.error(f"Failed to generate cover letter for {job_title} at {company}")
+                    print(f"  ❌ Failed to generate cover letter for email application")
+                    return False, ""
+                    
+                cover_letter = cover_letter_result.get("cover_letter", "")
+                    
+                # Create cover letter PDF
+                print(f"  📄 Creating cover letter PDF for email...")
+                sys.stdout.flush()
+                timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+                cover_letter_filename = f"cover_letter_{user_name.replace(' ', '_')}_{job_title.replace(' ', '_')}_{timestamp}.pdf"
+                cover_letter_path = os.path.join(os.getcwd(), "backend", "static", "uploads", cover_letter_filename)
+                
+                success = await self.pdf_writer.create_cover_letter_pdf(
+                    cover_letter_text=cover_letter,
+                    output_path=cover_letter_path,
+                    applicant_name=user_name,
+                    job_title=job_title,
+                    company_name=company
+                )
+                
+                if not success:
+                    logger.error(f"Failed to create cover letter PDF for {job_title} at {company}")
+                    print(f"  ❌ Failed to create cover letter PDF for email application")
+                    return False, ""
             
             # Send application via email
-            email_subject = f"Application for {job_title} position"
+            print(f"  📧 Sending email application to {company_email}...")
+            sys.stdout.flush()
+            email_subject = f"Application for {job_title} position at {company}"
             email_body = f"""
 Dear Hiring Manager,
 
@@ -324,6 +433,7 @@ Thank you for considering my application. I look forward to the possibility of d
 
 Best regards,
 {user_name}
+{user_email}
             """
             
             # Send email with attachments
@@ -338,8 +448,11 @@ Best regards,
             
             if email_success:
                 logger.info(f"Sent application via email for {job_title} at {company} to {company_email}")
+                print(f"  ✅ Email application sent successfully to {company_email}!")
                 
                 # Send confirmation to the applicant
+                print(f"  📧 Sending confirmation email to applicant...")
+                sys.stdout.flush()
                 await self.email_service.send_application_confirmation(
                     recipient_email=user_email,
                     name=user_name,
@@ -348,27 +461,21 @@ Best regards,
                     cover_letter_path=cover_letter_path,
                     application_method="email"
                 )
+                print(f"  ✅ Confirmation email sent to applicant!")
                 
                 return True, cover_letter_path
             else:
                 logger.error(f"Failed to send application email for {job_title} at {company}")
+                print(f"  ❌ Failed to send email application to {company_email}")
                 return False, ""
             
         except Exception as e:
             logger.error(f"Error in _apply_via_email: {str(e)}")
+            print(f"  ❌ Email application error: {str(e)}")
             return False, ""
     
     async def _filter_jobs(self, jobs: List[Dict], user_email: str) -> List[Dict]:
-        """
-        Filter jobs to avoid applying to the same job multiple times.
-        
-        Args:
-            jobs: List of job listings
-            user_email: Email of the applicant
-            
-        Returns:
-            Filtered list of jobs
-        """
+        """Filter jobs to avoid applying to the same job multiple times."""
         try:
             # Get previously applied jobs
             applied_jobs = await self._get_applied_jobs(user_email)
@@ -396,15 +503,7 @@ Best regards,
             return jobs  # If filtering fails, return all jobs
     
     async def _get_applied_jobs(self, user_email: str) -> List[Dict]:
-        """
-        Get list of jobs that the user has already applied to.
-        
-        Args:
-            user_email: Email of the applicant
-            
-        Returns:
-            List of previously applied jobs
-        """
+        """Get list of jobs that the user has already applied to."""
         try:
             # Create user-specific directory if it doesn't exist
             user_dir = os.path.join(self.history_dir, self._get_sanitized_email(user_email))
@@ -427,16 +526,7 @@ Best regards,
             return []
     
     async def _save_applications(self, new_applications: List[Dict], user_email: str) -> bool:
-        """
-        Save new job applications to the user's history.
-        
-        Args:
-            new_applications: List of new job applications
-            user_email: Email of the applicant
-            
-        Returns:
-            Success flag
-        """
+        """Save new job applications to the user's history."""
         try:
             if not new_applications:
                 return True
@@ -463,27 +553,11 @@ Best regards,
             return False
     
     def _get_sanitized_email(self, email: str) -> str:
-        """
-        Convert email to a filesystem-safe string.
-        
-        Args:
-            email: Email address
-            
-        Returns:
-            Sanitized email
-        """
+        """Convert email to a filesystem-safe string."""
         return email.replace("@", "_at_").replace(".", "_dot_")
     
     async def get_application_summary(self, user_email: str) -> Dict[str, any]:
-        """
-        Get a summary of the user's job applications.
-        
-        Args:
-            user_email: Email of the applicant
-            
-        Returns:
-            Summary of applications
-        """
+        """Get a summary of the user's job applications."""
         try:
             # Get all applications
             applications = await self._get_applied_jobs(user_email)
