@@ -49,3 +49,17 @@ class PDFParser:
             "full_text": cv_text,
             # Add more structured fields as needed
         }
+    
+    async def parse_pdf(self, file_path: str) -> str:
+        """
+        Parse a PDF file and return the extracted text.
+        This is a wrapper method to maintain compatibility with auto_applicator.py.
+        
+        Args:
+            file_path: Path to the PDF file
+            
+        Returns:
+            str: Extracted text from the PDF
+        """
+        cv_data = self.parse_cv(file_path)
+        return cv_data["full_text"]
