@@ -610,7 +610,7 @@ async def api_submit_application(
     API version of submit_application that returns JSON responses.
     """
     # Check rate limit
-    rate_check = rate_limiter.check_rate_limiter(email)
+    rate_check = rate_limiter.check_rate_limit(email)
     if not rate_check["allowed"]:
         return JSONResponse(
             content={"success": False, "error": rate_check["message"]},
