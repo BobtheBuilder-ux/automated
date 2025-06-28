@@ -3,6 +3,7 @@ from xhtml2pdf import pisa
 from datetime import datetime
 from typing import Tuple, Optional, Dict, Any
 import asyncio
+import aiofiles  # Add this import for async file operations
 
 # Import the firebase service
 from .firebase_service import firebase_service
@@ -79,7 +80,7 @@ class PDFWriter:
                 cover_letter_text, applicant_name, job_title, company_name
             )
             
-            # Create PDF file
+            # Create PDF file - Use synchronous method since xhtml2pdf doesn't support async
             success = self.text_to_pdf(formatted_content, output_path)
             
             if success:
@@ -220,14 +221,14 @@ class PDFWriter:
         """
         today = datetime.now().strftime("%B %d, %Y")
         
-        # Create a well-formatted HTML document for the cover letter
+        # Create a well-formatted HTML document for the cover letter - Fix CSS syntax issues
         html = f"""
         <html>
         <head>
             <style>
                 @page {{ size: letter; margin: 1in; }}
                 body {{ 
-                    font-family: 'Arial', sans-serif; 
+                    font-family: Arial, sans-serif; 
                     font-size: 12pt; 
                     line-height: 1.5;
                     color: #333;

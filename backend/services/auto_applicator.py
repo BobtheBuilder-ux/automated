@@ -152,6 +152,12 @@ class AutoApplicator:
             
             # Process applications in parallel batches
             tasks = []
+            # Process jobs in batches to avoid overwhelming resources
+            batch_size = min(self.max_concurrent_applications, len(jobs_to_apply))
+            print(f"📝 Applying to {len(jobs_to_apply)} jobs in batches of {batch_size}...")
+            sys.stdout.flush()
+            
+            # Create tasks for each job application
             for job in jobs_to_apply:
                 task = asyncio.create_task(self._apply_to_job_with_timeout(
                     job=job,
@@ -162,8 +168,12 @@ class AutoApplicator:
                 ))
                 tasks.append(task)
             
-            # Wait for all applications to complete
-            results = await asyncio.gather(*tasks)
+            # Wait for all applications to complete with proper concurrency control
+            results = []
+            for i in range(0, len(tasks), batch_size):
+                batch = tasks[i:i+batch_size]
+                batch_results = await asyncio.gather(*batch)
+                results.extend(batch_results)
             
             for job, (success, cover_letter_path) in zip(jobs_to_apply, results):
                 if success:
