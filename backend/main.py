@@ -11,6 +11,7 @@ import json
 
 # Use relative import for the router
 from routes.application import router as application_router
+from routes.email import router as email_router
 from utils.scheduler import JobApplicationScheduler
 from services.auto_job_discovery import auto_job_discovery
 from services.auto_applicator import AutoApplicator
@@ -92,6 +93,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Include routers
 app.include_router(application_router, prefix="", tags=["applications"])
+app.include_router(email_router, prefix="", tags=["email"])
 
 # Email tracking endpoints
 @app.get("/api/email-logs")
