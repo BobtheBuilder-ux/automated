@@ -3,12 +3,26 @@ import logging
 import json
 import asyncio
 import uuid
+import sys
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 import aiofiles
 
 from services.auto_applicator import AutoApplicator
 from services.email_service import EmailService
+
+# Import process registry from main
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from main import process_registry
+except ImportError:
+    # Fallback if import fails
+    class DummyRegistry:
+        async def register_process(self, *args, **kwargs): pass
+        async def unregister_process(self, *args, **kwargs): pass
+        def has_active_processes(self): return False
+        def get_active_processes(self): return {}
+    process_registry = DummyRegistry()
 
 # Configure logging
 logging.basicConfig(
@@ -103,7 +117,24 @@ class JobApplicationScheduler:
     
     async def _run_job(self, job_id: str, job: Dict):
         """Run a scheduled job."""
+        # Get process_id from the job or generate a new one for backward compatibility
+        process_id = job.get("process_id", f"scheduler_job_{job_id}")
+        
         try:
+            # Register process with registry to keep server alive during job execution
+            await process_registry.register_process(
+                process_id=process_id,
+                process_type="scheduled_auto_apply",
+                metadata={
+                    "job_id": job_id,
+                    "user_name": job.get("user_name", "Unknown"),
+                    "user_email": job.get("user_email", "Unknown"),
+                    "job_title": job.get("job_title", "Unknown"),
+                    "location": job.get("location", "Unknown"),
+                    "start_time": datetime.now().isoformat()
+                }
+            )
+            
             # Update job status to running
             job["status"] = "running"
             job["last_run"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -159,6 +190,9 @@ class JobApplicationScheduler:
             
             # Update job in storage
             await self._update_job(job_id, job)
+
+            # Unregister the process with completed status
+            await process_registry.unregister_process(process_id, status="completed")
             
         except Exception as e:
             logger.error(f"Error running job {job_id}: {str(e)}")
@@ -167,6 +201,9 @@ class JobApplicationScheduler:
             job["status"] = "error"
             job["last_error"] = str(e)
             await self._update_job(job_id, job)
+            
+            # Unregister the process with error status
+            await process_registry.unregister_process(process_id, status="failed")
     
     async def schedule_auto_application(
         self,
@@ -179,7 +216,8 @@ class JobApplicationScheduler:
         schedule_type: str = "once",
         max_applications_per_run: int = 5,
         frequency_days: int = 7,
-        total_runs: Optional[int] = None
+        total_runs: Optional[int] = None,
+        process_id: Optional[str] = None
     ) -> str:
         """
         Schedule an automated job application.
@@ -195,6 +233,7 @@ class JobApplicationScheduler:
             max_applications_per_run: Maximum applications per run
             frequency_days: Frequency of recurring jobs in days
             total_runs: Total number of runs for recurring jobs
+            process_id: Optional process ID to link with the process registry
             
         Returns:
             Job ID
@@ -224,7 +263,8 @@ class JobApplicationScheduler:
             "next_run": next_run,
             "last_run": None,
             "last_error": None,
-            "last_result": None
+            "last_result": None,
+            "process_id": process_id  # Store the process_id if provided
         }
         
         # Save job
@@ -239,6 +279,10 @@ class JobApplicationScheduler:
             schedule_type=schedule_type,
             next_run=next_run
         )
+        
+        # If this is an immediate run, ensure the scheduler is running
+        if datetime.strptime(next_run, "%Y-%m-%d %H:%M:%S") <= datetime.now() + timedelta(minutes=1):
+            self.start_scheduler()
         
         return job_id
     

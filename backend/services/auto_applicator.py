@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import aiofiles
 import time
 from concurrent.futures import ThreadPoolExecutor
+import aiohttp  # Ensure this import is available
 
 from .job_scraper import JobScraper
 from .pdf_parser import PDFParser
@@ -41,10 +42,39 @@ class AutoApplicator:
         self.application_timeout = 180  # 3 minutes timeout per application
         self.email_fallback = True  # Send email applications when direct applications fail
         
+        # Keep-alive configuration
+        self.keep_alive_interval = 60  # Send health ping every 60 seconds
+        self.keep_alive_task = None
+        self.keep_alive_url = os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:8000")
+        
         # Ensure application history directory exists
         self.history_dir = os.path.join("backend", "static", "application_history")
         os.makedirs(self.history_dir, exist_ok=True)
         
+    async def _keep_alive_ping(self):
+        """Background task to periodically ping the health endpoint to prevent shutdown."""
+        try:
+            health_url = f"{self.keep_alive_url}/health"
+            logger.info(f"Starting keep-alive pings to {health_url} every {self.keep_alive_interval} seconds")
+            print(f"🔄 Starting keep-alive pings to keep server active")
+            
+            async with aiohttp.ClientSession() as session:
+                while True:
+                    try:
+                        async with session.get(health_url) as response:
+                            if response.status == 200:
+                                logger.debug(f"Keep-alive ping successful: {response.status}")
+                            else:
+                                logger.warning(f"Keep-alive ping returned unexpected status: {response.status}")
+                    except Exception as e:
+                        logger.error(f"Keep-alive ping failed: {str(e)}")
+                    
+                    await asyncio.sleep(self.keep_alive_interval)
+        except asyncio.CancelledError:
+            logger.info("Keep-alive task cancelled")
+        except Exception as e:
+            logger.error(f"Error in keep-alive task: {str(e)}")
+    
     async def apply_to_jobs(
         self,
         user_name: str,
@@ -69,6 +99,9 @@ class AutoApplicator:
             Tuple of (success, applications_list, error_message)
         """
         try:
+            # Start the keep-alive task to prevent the server from spinning down
+            self.keep_alive_task = asyncio.create_task(self._keep_alive_ping())
+            
             start_time = time.time()
             print(f"\n🚀 Starting auto-apply process for {user_name} ({user_email})")
             print(f"📋 Looking for {job_title} jobs in {location}...")
@@ -159,9 +192,25 @@ class AutoApplicator:
             print(f"📊 Successfully applied to {len(applications)} jobs")
             logger.info(f"Auto-apply process completed in {elapsed_time:.2f} seconds with {len(applications)} successful applications")
             
+            # Cancel the keep-alive task as we're done with the application process
+            if self.keep_alive_task and not self.keep_alive_task.done():
+                self.keep_alive_task.cancel()
+                try:
+                    await self.keep_alive_task
+                except asyncio.CancelledError:
+                    pass
+            
             return True, applications, f"Successfully applied to {len(applications)} jobs"
             
         except Exception as e:
+            # Cancel the keep-alive task in case of error
+            if self.keep_alive_task and not self.keep_alive_task.done():
+                self.keep_alive_task.cancel()
+                try:
+                    await self.keep_alive_task
+                except asyncio.CancelledError:
+                    pass
+            
             logger.error(f"Error in apply_to_jobs: {str(e)}")
             print(f"❌ Error in job application process: {str(e)}")
             return False, [], f"Error in apply_to_jobs: {str(e)}"

@@ -4,6 +4,7 @@ from fastapi.templating import Jinja2Templates
 import os
 import aiofiles
 import uuid
+from datetime import datetime
 from typing import Optional, Annotated, List, Dict
 import pathlib
 
@@ -17,6 +18,20 @@ from services.firebase_service import firebase_service
 from services.auto_job_discovery import auto_job_discovery
 from utils.limiter import RateLimiter
 from utils.scheduler import JobApplicationScheduler
+
+# Import process registry from main
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from main import process_registry
+except ImportError:
+    # Fallback if import fails
+    class DummyRegistry:
+        async def register_process(self, *args, **kwargs): pass
+        async def unregister_process(self, *args, **kwargs): pass
+        def has_active_processes(self): return False
+        def get_active_processes(self): return {}
+    process_registry = DummyRegistry()
 
 router = APIRouter()
 
@@ -318,6 +333,22 @@ async def schedule_auto_apply(
         # Generate a unique user ID
         user_id = str(uuid.uuid4())
         
+        # Register this auto-apply process with the process registry
+        process_id = f"auto_apply_{user_id}"
+        await process_registry.register_process(
+            process_id=process_id,
+            process_type="auto_apply",
+            metadata={
+                "user_id": user_id,
+                "user_name": full_name,
+                "user_email": email,
+                "job_title": job_title,
+                "location": location,
+                "max_applications": max_applications,
+                "start_time": datetime.now().isoformat()
+            }
+        )
+        
         # Schedule the auto-application task
         scheduler = get_scheduler()
         job_id = await scheduler.schedule_auto_application(
@@ -330,7 +361,8 @@ async def schedule_auto_apply(
             schedule_type=schedule_type,
             max_applications_per_run=max_applications,
             frequency_days=frequency_days,
-            total_runs=total_runs
+            total_runs=total_runs,
+            process_id=process_id  # Pass process_id to the scheduler
         )
         
         # Save auto-apply submission to Firebase database
@@ -347,6 +379,7 @@ async def schedule_auto_apply(
             "total_runs": total_runs,
             "job_id": job_id,
             "user_id": user_id,
+            "process_id": process_id,
             "cvPath": cv_path,
             "application_notes": f"Auto-apply job scheduled for {job_title} in {location}. Max {max_applications} applications per run."
         }
@@ -371,6 +404,10 @@ async def schedule_auto_apply(
         )
         
     except Exception as e:
+        # If there was an error, try to unregister the process if it was created
+        if 'process_id' in locals():
+            await process_registry.unregister_process(process_id, status="failed")
+            
         return templates.TemplateResponse(
             "auto_apply.html", 
             {"request": request, "message": f"An error occurred: {str(e)}", "error": True}
@@ -923,6 +960,22 @@ async def api_schedule_auto_apply(
         # Generate a unique user ID
         user_id = str(uuid.uuid4())
         
+        # Register this auto-apply process with the process registry
+        process_id = f"api_auto_apply_{user_id}"
+        await process_registry.register_process(
+            process_id=process_id,
+            process_type="api_auto_apply",
+            metadata={
+                "user_id": user_id,
+                "user_name": full_name,
+                "user_email": email,
+                "job_title": job_title,
+                "location": location,
+                "max_applications": max_applications,
+                "start_time": datetime.now().isoformat()
+            }
+        )
+        
         # Schedule the auto-application task
         scheduler = get_scheduler()
         job_id = await scheduler.schedule_auto_application(
@@ -935,7 +988,8 @@ async def api_schedule_auto_apply(
             schedule_type=schedule_type,
             max_applications_per_run=max_applications,
             frequency_days=frequency_days,
-            total_runs=total_runs
+            total_runs=total_runs,
+            process_id=process_id  # Pass process_id to the scheduler
         )
         
         # Save auto-apply submission to Firebase database
@@ -952,6 +1006,7 @@ async def api_schedule_auto_apply(
             "total_runs": total_runs,
             "job_id": job_id,
             "user_id": user_id,
+            "process_id": process_id,
             "cvPath": cv_path,
             "application_notes": f"Auto-apply job scheduled for {job_title} in {location}. Max {max_applications} applications per run."
         }
@@ -972,11 +1027,16 @@ async def api_schedule_auto_apply(
                 "job_id": job_id,
                 "schedule_info": await scheduler.get_job_details(job_id),
                 "user_id": user_id,
+                "process_id": process_id,
                 "cv_path": cv_path
             }
         })
         
     except Exception as e:
+        # If there was an error, try to unregister the process if it was created
+        if 'process_id' in locals():
+            await process_registry.unregister_process(process_id, status="failed")
+            
         print(f"Error in API auto-apply: {str(e)}")
         return JSONResponse(
             content={"success": False, "error": f"An error occurred: {str(e)}"},

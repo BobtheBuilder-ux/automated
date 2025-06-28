@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 import pathlib
 from datetime import datetime, timedelta
 import json
+import asyncio
+from typing import Dict, Set
 
 # Use relative import for the router
 from routes.application import router as application_router
@@ -26,6 +28,42 @@ scheduler = JobApplicationScheduler()
 # Initialize services globally
 auto_applicator = AutoApplicator()
 email_tracker = EmailTrackingService()
+
+# Process registry to track long-running processes
+class ProcessRegistry:
+    def __init__(self):
+        self.active_processes: Dict[str, Dict] = {}
+        self.lock = asyncio.Lock()
+    
+    async def register_process(self, process_id: str, process_type: str, metadata: Dict = None) -> None:
+        """Register a long-running process"""
+        async with self.lock:
+            self.active_processes[process_id] = {
+                "type": process_type,
+                "start_time": datetime.now().isoformat(),
+                "metadata": metadata or {},
+                "status": "running"
+            }
+            print(f"✅ Registered process: {process_id} (type: {process_type})")
+    
+    async def unregister_process(self, process_id: str, status: str = "completed") -> None:
+        """Unregister a process when it completes"""
+        async with self.lock:
+            if process_id in self.active_processes:
+                self.active_processes[process_id]["status"] = status
+                self.active_processes[process_id]["end_time"] = datetime.now().isoformat()
+                print(f"✅ Process {process_id} marked as {status}")
+    
+    def has_active_processes(self) -> bool:
+        """Check if there are any active processes"""
+        return any(p["status"] == "running" for p in self.active_processes.values())
+    
+    def get_active_processes(self) -> Dict[str, Dict]:
+        """Get all active processes"""
+        return {k: v for k, v in self.active_processes.items() if v["status"] == "running"}
+
+# Create global process registry
+process_registry = ProcessRegistry()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -181,7 +219,37 @@ async def clear_email_logs():
 @app.get("/health")
 async def health_check():
     """Health check endpoint for monitoring"""
-    return {"status": "healthy", "message": "Service is running"}
+    active_processes = process_registry.get_active_processes()
+    is_active = bool(active_processes)
+    
+    response = {
+        "status": "healthy",
+        "message": "Service is running",
+        "has_active_processes": is_active,
+        "active_process_count": len(active_processes),
+    }
+    
+    # Add active process info if any exist
+    if is_active:
+        response["active_processes"] = {
+            k: {
+                "type": v["type"], 
+                "started": v["start_time"],
+                "active_for": str(datetime.now() - datetime.fromisoformat(v["start_time"]))
+            } 
+            for k, v in active_processes.items()
+        }
+    
+    return response
+
+# Process registry endpoint
+@app.get("/api/processes")
+async def get_processes():
+    """Get information about running processes"""
+    return {
+        "active_processes": process_registry.get_active_processes(),
+        "has_active_processes": process_registry.has_active_processes(),
+    }
 
 # Define the root endpoint
 @app.get("/")
