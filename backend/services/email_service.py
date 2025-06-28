@@ -24,15 +24,15 @@ class EmailService:
     
     def __init__(self):
         # Load email settings from environment variables
-        self.smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-        self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        self.sender_email = os.getenv("EMAIL_USER", "")
-        self.sender_password = os.getenv("EMAIL_PASSWORD", "")
+        self.smtp_server = os.getenv("EMAIL_HOST", os.getenv("SMTP_HOST", "smtp.hostinger.com"))
+        self.smtp_port = int(os.getenv("EMAIL_PORT", os.getenv("SMTP_PORT", "587")))
+        self.sender_email = os.getenv("EMAIL_HOST_USER", os.getenv("SMTP_USERNAME", "clients@bobbieberry.com"))
+        self.sender_password = os.getenv("EMAIL_HOST_PASSWORD", os.getenv("SMTP_PASSWORD", ""))
         
         if not self.sender_email or not self.sender_password:
             logger.warning("Email credentials not set. Email service will not work properly.")
         else:
-            logger.info("Email service initialized successfully with credentials.")
+            logger.info(f"Email service initialized successfully with email: {self.sender_email}")
     
     async def send_email(
         self,
